@@ -1,0 +1,19 @@
+# Compiled Source
+*.pyc
+
+# Temp
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Packaging anf Installing
+eggs/
+.eggs/
+*.egg
+*.egg-info/
+
+# data
+data/
