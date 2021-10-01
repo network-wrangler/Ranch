@@ -69,3 +69,114 @@ def run_osmnx_extraction(
 
     with open(os.path.join(output_dir, "node.geojson"), "w") as f:
         json.dump(node_geojson, f)
+
+def add_two_way_osm(link_gdf, osmnx_link):
+    """
+    for osm with oneway = False, add the reverse direction to complete
+    
+    Parameters
+    ------------
+    osm link from shst extraction, plus shst info
+    
+    return
+    ------------
+    complete osm link
+    """
+    osm_link_gdf = link_gdf.copy()
+    osm_link_gdf["wayId"] = osm_link_gdf["wayId"].astype(int)
+    osm_link_gdf.drop("name", axis = 1, inplace = True)
+    
+    osmnx_link_gdf = osmnx_link.copy()
+
+    osmnx_link_gdf.drop_duplicates(subset = ["osmid"], inplace = True)
+    osmnx_link_gdf.drop(["length", "u", "v", "geometry"], axis = 1, inplace = True)
+    
+    RanchLogger.info("shst extraction has {} geometries".format(osm_link_gdf.id.nunique()))
+    RanchLogger.info("shst extraction has {} osm links".format(osm_link_gdf.shape[0]))
+    
+    osm_link_gdf["u"] = osm_link_gdf.nodeIds.apply(lambda x: int(x[0]))
+    osm_link_gdf["v"] = osm_link_gdf.nodeIds.apply(lambda x: int(x[-1]))
+    
+    RanchLogger.info("---joining osm shst with osmnx data---")
+    osm_link_gdf = pd.merge(osm_link_gdf,
+                            osmnx_link_gdf,
+                            left_on = ["wayId"],
+                            right_on = ["osmid"],
+                            how = "left")
+    
+    reverse_osm_link_gdf = osm_link_gdf[(osm_link_gdf.oneWay == False) & 
+                                        (osm_link_gdf.forwardReferenceId != osm_link_gdf.backReferenceId) & 
+                                        (osm_link_gdf.u != osm_link_gdf.v)].copy()
+    
+    RanchLogger.info("shst extraction has {} two-way osm links".format(reverse_osm_link_gdf.shape[0]))
+    RanchLogger.info("and they are {} geometrys".format(reverse_osm_link_gdf.id.nunique()))
+    
+    reverse_osm_link_gdf.rename(columns = {"u" : "v",
+                                          "v" : "u",
+                                          "forwardReferenceId" : "backReferenceId",
+                                          "backReferenceId" : "forwardReferenceId",
+                                          "fromIntersectionId" : "toIntersectionId",
+                                          "toIntersectionId" : "fromIntersectionId"},
+                               inplace = True)
+    
+    reverse_osm_link_gdf["reverse_out"] = 1
+    
+    osm_link_gdf = pd.concat([osm_link_gdf, reverse_osm_link_gdf],
+                            sort = False,
+                            ignore_index = True)
+    
+    osm_link_gdf.rename(columns = {"forwardReferenceId" : "shstReferenceId",
+                                 "geometryId" : "shstGeometryId"},
+                      inplace = True)
+    
+    osm_link_gdf.drop("backReferenceId",
+                     axis = 1,
+                     inplace = True)
+    
+    RanchLogger.info("after join, ther are {} osm links from shst extraction, \
+    out of which there are {} links that do not have osm info, \
+    due to shst extraction (default tile 181224) contains {} osm ids that are not included in latest OSM extraction, \
+    e.g. private streets, closed streets.".format(
+        len(osm_link_gdf), 
+        len(osm_link_gdf[osm_link_gdf.osmid.isnull()]), 
+        osm_link_gdf[osm_link_gdf.osmid.isnull()].wayId.nunique()
+        )
+    )
+
+    RanchLogger.info("after join, there are {} shst referencies".format(
+        osm_link_gdf.groupby(["shstReferenceId", "shstGeometryId"]).count().shape[0])
+    )
+    
+    return osm_link_gdf
+
+def highway_attribute_list_to_value(x, highway_to_roadway_dict, roadway_hierarchy_dict):
+    """
+    clean up osm highway, and map to standard roadway
+    """
+    if type(x.highway) == list:
+        value_list = list(set([highway_to_roadway_dict[c] for c in x.highway]))
+        if len(value_list) == 1:
+            if value_list[0] != "":
+                return value_list[0]
+            else:
+                if type(x.roadClass) == list:
+                    return highway_to_roadway_dict[x.roadClass[0].lower()]
+                else:
+                    return highway_to_roadway_dict[x.roadClass.lower()]
+
+        else:
+            ret_val = value_list[0]
+            ret_val_level = roadway_hierarchy_dict[ret_val]
+            for c in value_list:
+                val_level = roadway_hierarchy_dict[c]
+                if val_level < ret_val_level:
+                    ret_val = c
+                    ret_val_level = val_level
+                else:
+                    continue
+            return ret_val
+    else:
+        if x.highway == "":
+            return highway_to_roadway_dict[x.roadClass.lower()]
+        else:
+            return highway_to_roadway_dict[x.highway]

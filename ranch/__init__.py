@@ -4,19 +4,23 @@ import os
 from datetime import datetime
 
 from .logger import RanchLogger, setupLogging
-#from .roadway import Roadway
-from .sharedstreets import run_shst_extraction
+from .roadway import Roadway
+from .sharedstreets import run_shst_extraction, read_shst_extraction, run_shst_match
 from .osm import run_osmnx_extraction
 from .utils import link_df_to_geojson, point_df_to_geojson
+from .parameters import Parameters
 
 __all__ = [
     "RanchLogger",
     "setupLogging",
-    #"Roadway",
+    "Roadway",
     "run_shst_extraction",
+    "read_shst_extraction",
+    "run_shst_match",
     "run_osmnx_extraction",
     "link_df_to_geojson",
     "point_df_to_geojson",
+    "Parameters",
 ]
 
 setupLogging(
