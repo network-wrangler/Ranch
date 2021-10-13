@@ -9,6 +9,7 @@ from .sharedstreets import run_shst_extraction, read_shst_extraction, run_shst_m
 from .osm import run_osmnx_extraction
 from .utils import link_df_to_geojson, point_df_to_geojson
 from .parameters import Parameters
+from .transit import Transit
 
 __all__ = [
     "RanchLogger",
@@ -21,6 +22,7 @@ __all__ = [
     "link_df_to_geojson",
     "point_df_to_geojson",
     "Parameters",
+    "Transit",
 ]
 
 setupLogging(

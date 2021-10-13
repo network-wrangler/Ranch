@@ -96,9 +96,10 @@ def _run_shst_extraction(
 
 def run_shst_match(
     input_network_file: str,
-    input_crs: Optional[CRS],
     output_dir: str,
-    custom_match_option: Optional[str],
+    input_crs: Optional[CRS] = None,
+    input_unqiue_id: Optional[list] = None,
+    custom_match_option: Optional[str] = None,
 ):
 
     """
@@ -137,25 +138,31 @@ def run_shst_match(
     # convert to lat-long
     network_gdf = network_gdf.to_crs(CRS("EPSG:4269"))
     
-    # create unique IDs for network
-    network_gdf["unique_id"] = range(1, 1+len(network_gdf))
+    # check if input network has unique IDs
+    if input_unqiue_id:
+        filename = input_network_file
+        filename = os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
+        
+    # if not, create unique IDs
+    else:
+        network_gdf["unique_id"] = range(1, 1+len(network_gdf))
 
-    # export network to geojson for shst node js
+        # export network to geojson for shst node js
 
-    filename = os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
+        filename = os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
 
-    RanchLogger.info("Exporting shst match input - ID-ed geometry file {}".format(os.path.join(output_dir, filename+".geojson")))
+        RanchLogger.info("Exporting shst match input - ID-ed geometry file {}".format(os.path.join(output_dir, filename+".geojson")))
     
-    network_gdf[["unique_id", "geometry"]].to_file(
-        os.path.join(output_dir, filename+".geojson"),
-        driver = "GeoJSON"
-    )
+        network_gdf[["unique_id", "geometry"]].to_file(
+            os.path.join(output_dir, filename+".geojson"),
+            driver = "GeoJSON"
+        )
 
-    RanchLogger.info("Exporting ID-ed network file {}".format(os.path.join(output_dir, filename+".full.shp")))
+        RanchLogger.info("Exporting ID-ed network file {}".format(os.path.join(output_dir, filename+".full.shp")))
     
-    network_gdf.to_file(
-        os.path.join(output_dir, filename+".full.shp")
-    )
+        network_gdf.to_file(
+            os.path.join(output_dir, filename+".full.shp")
+        )
 
     if custom_match_option:
         match_option = custom_match_option

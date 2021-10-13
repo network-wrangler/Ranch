@@ -8,7 +8,7 @@ import pytest
 import ranch
 from ranch import Roadway
 from ranch import Parameters
-from ranch.utils import link_df_to_geojson
+from ranch.utils import link_df_to_geojson, point_df_to_geojson
 from ranch.logger import RanchLogger
 
 """
@@ -51,7 +51,7 @@ def test_create_roadway_network_from_extracts(request):
     RanchLogger.info("-------write out node geojson---------")
 
     node_prop = roadway_network.nodes_df.drop('geometry', axis = 1).columns.tolist()
-    node_geojson = link_df_to_geojson(roadway_network.nodes_df, node_prop)
+    node_geojson = point_df_to_geojson(roadway_network.nodes_df, node_prop)
 
     with open(os.path.join(root_dir,"data", "interim","step3_nodes.geojson"), "w") as f:
         json.dump(node_geojson, f)
@@ -101,7 +101,7 @@ def test_step5_tidy_roadway(request):
     RanchLogger.info("-------write out node geojson---------")
 
     node_prop = roadway_network.nodes_df.drop('geometry', axis = 1).columns.tolist()
-    node_geojson = link_df_to_geojson(roadway_network.nodes_df, node_prop)
+    node_geojson = point_df_to_geojson(roadway_network.nodes_df, node_prop)
 
     with open(os.path.join(root_dir,"data", "interim","step5_nodes.geojson"), "w") as f:
         json.dump(node_geojson, f)

@@ -34,6 +34,10 @@ class Parameters:
         else:
             self.settings_location = os.path.join(self.base_dir, "settings")
 
+        self.scratch_location = os.path.join(self.base_dir, "tests", "scratch")
+
+        self.data_interim_dir = os.path.join(self.base_dir, 'data', 'interim')
+
         self.highway_to_roadway_crosswalk_file = os.path.join(self.settings_location, "highway_to_roadway.csv")
 
         self.network_type_file = os.path.join(self.settings_location, "network_type_indicator.csv")
@@ -62,6 +66,37 @@ class Parameters:
             "Sonoma" : {"start" : 7000000, "end" : 8000000},
             "Marin" : {"start" : 8000000, "end" : 8500000},
             "San Joaquin" : {"start" : 8500000, "end" : 9000000},
+        }
+
+        self.model_time_period = {
+            "AM" : {"start" : 6, "end" : 10},
+            "MD" : {"start" : 10, "end" : 15},
+            "PM" : {"start" : 15, "end" : 19},
+            "NT" : {"start" : 19, "end" : 3, "frequency_start" : 19, "frequency_end" : 22},
+            "EA" : {"start" : 3, "end" : 6, "frequency_start" : 5, "frequency_end" : 6},
+        }
+
+        self.model_time_enum_list = {'start_time' : {'AM' : '06:00:00', 
+                                        'MD' : '10:00:00',
+                                        "PM" : "15:00:00",
+                                        "NT" : "19:00:00",
+                                        "EA" : "03:00:00"},
+                        'end_time' : {'AM' : '10:00:00', 
+                                        'MD' : '15:00:00',
+                                        "PM" : "19:00:00",
+                                        "NT" : "03:00:00",
+                                        "EA" : "06:00:00"}}
+
+        self.transit_routing_parameters = {
+            "good_links_buffer_radius" : 200, 
+            "non_good_links_penalty" : 5,
+            "bad_stops_buffer_radius" : 100, 
+            "ft_penalty" : {
+                "residential" : 2,
+                "service" : 3,
+                "default" : 1,
+                "motorway" : 0.9
+            },
         }
 
         self.__dict__.update(kwargs)
