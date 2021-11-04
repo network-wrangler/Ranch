@@ -124,7 +124,7 @@ def run_shst_match(
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
-            RanchLogger.info("input network crs : {}".format(network_gdf.crs))
+            RanchLogger.info("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
         
         else:
             msg = "Invalid network file, should be .shp or .geojson"
@@ -145,7 +145,15 @@ def run_shst_match(
         
     # if not, create unique IDs
     else:
+        RanchLogger.info('Input network for shst match does not have unique IDs, generating unique IDs')
         network_gdf["unique_id"] = range(1, 1+len(network_gdf))
+
+        RanchLogger.info(
+            ('Generated {} unique IDs for {} links in the input network').format(
+                network_gdf['unique_id'].nunique(),
+                len(network_gdf)
+            )
+        )
 
         # export network to geojson for shst node js
 
@@ -158,10 +166,11 @@ def run_shst_match(
             driver = "GeoJSON"
         )
 
-        RanchLogger.info("Exporting ID-ed network file {}".format(os.path.join(output_dir, filename+".full.shp")))
+        RanchLogger.info("Exporting ID-ed network file {}".format(os.path.join(output_dir, filename+".full.geojson")))
     
         network_gdf.to_file(
-            os.path.join(output_dir, filename+".full.shp")
+            os.path.join(output_dir, filename+".full.geojson"),
+            driver = 'GeoJSON'
         )
 
     if custom_match_option:
