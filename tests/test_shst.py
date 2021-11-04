@@ -63,6 +63,7 @@ def test_extract_osm_link_from_shst_extraction(request):
 
     print(osm_from_shst_df.info())
 
+@pytest.mark.menow
 @pytest.mark.shst
 def test_shst_match(request):
     """
@@ -77,5 +78,6 @@ def test_shst_match(request):
         input_network_file = os.path.join(root_dir, "data", "external", "sjmodel", "Network", "2015","TCM_MASTER_2A22_102717.shp"),
         input_crs = CRS("ESRI:102643"),
         output_dir = os.path.join(root_dir, "data", "external", "sjmodel", "shst_match"),
-        custom_match_option = '--tile-hierarchy=8'
+        #custom_match_option = '--tile-hierarchy=8 --search-radius=50'
+        custom_match_option = '--tile-hierarchy=8 --search-radius=50 --snap-intersections'
     )

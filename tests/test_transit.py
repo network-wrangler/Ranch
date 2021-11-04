@@ -223,7 +223,7 @@ def test_match_gtfs_shapes_to_shst(request):
 
     print(transit_network.trip_shst_link_df.head(3))
 
-@pytest.mark.menow
+#@pytest.mark.menow
 @pytest.mark.travis
 def test_route_bus_trip(request):
     """
@@ -349,7 +349,7 @@ def test_create_shape_node_table(request):
         index= False
     )
 
-#@pytest.mark.menow
+@pytest.mark.menow
 @pytest.mark.travis
 def test_write_standard_transit(request):
     """
@@ -369,12 +369,12 @@ def test_write_standard_transit(request):
     RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
 
     transit_network.snap_stop_to_node()
-    """
+    
     transit_network.bus_trip_link_df = gpd.read_file(
         os.path.join(scratch_dir, 'test_routing_v3.geojson')
     )
-    """
-    transit_network.route_bus_trip()
+    
+    #transit_network.route_bus_trip()
 
     transit_network.update_bus_stop_node()
 
