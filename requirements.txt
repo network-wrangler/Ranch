@@ -11,4 +11,5 @@ geographiclib
 geojson
 jsonschema
 folium
-docker-py
+docker
+peartree
