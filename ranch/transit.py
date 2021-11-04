@@ -115,13 +115,17 @@ class Transit(object):
         
                 fare_attributes_df = pd.read_csv(os.path.join(path, agency, "fare_attributes.txt"),
                                          dtype = {"fare_id" : str})
+
+                fare_attributes_df["agency_raw_name"] = agency
     
             if "fare_rules.txt" in os.listdir(os.path.join(path, agency)):
         
                 fare_rules_df = pd.read_csv(
                     os.path.join(path, agency, "fare_rules.txt"),
                     dtype = {"fare_id" : str, "route_id" : str, "origin_id" : str, "destination_id" : str,
-                         " route_id" : str, " origin_id" : str, " destination_id" : str,})      
+                         " route_id" : str, " origin_id" : str, " destination_id" : str,})
+                
+                fare_rules_df["agency_raw_name"] = agency
 
             feed.agency = pd.concat([feed.agency, agency_feed.agency], sort = False, ignore_index = True)
             feed.routes = pd.concat([feed.routes, agency_feed.routes], sort = False, ignore_index = True)
@@ -208,6 +212,10 @@ class Transit(object):
         feed.stop_times["agency_raw_name"] = agency_gtfs_name
     
         feed.agency["agency_raw_name"] = agency_gtfs_name
+
+        feed.fare_attributes["agency_raw_name"] = agency_gtfs_name
+
+        feed.fare_rules["agency_raw_name"] = agency_gtfs_name
         
         # add agency_id in routes.txt if missing
         if "agency_id" not in feed.routes.columns:
@@ -419,7 +427,6 @@ class Transit(object):
         stop_df = gpd.GeoDataFrame(stop_df)
         stop_df.crs = {'init' : 'epsg:4326'}
         
-        RanchLogger.info('Snapping gtfs stops to roadway node osmid...')
         stop_to_node_gdf = find_closest_node(
             stop_df, 
             node_candidates_for_stops_df,
@@ -707,7 +714,6 @@ class Transit(object):
         for agency_raw_name in trip_stops['agency_raw_name'].unique():
             stop_id_list = trip_stops[trip_stops['agency_raw_name'] == agency_raw_name]['stop_id'].unique()
             for stop_id in stop_id_list:
-                #print(stop_id)
                 if self.good_link_dict.get(
                     (agency_raw_name,
                     stop_id)
@@ -1221,6 +1227,8 @@ class Transit(object):
         match stops to the nodes that are on the bus links
         """
 
+        RanchLogger.info("Updating stop node matching")
+
         # first for each stop, get what trips use them
         stop_time_df = self.feed.stop_times.copy()
         stop_df = self.feed.stops.copy()
@@ -1259,16 +1267,18 @@ class Transit(object):
             agency_trip_link_df = self.bus_trip_link_df[
                 self.bus_trip_link_df.agency_raw_name == agency_raw_name
             ].copy()
-            
-            for trip_id in agency_trip_link_df.trip_id.unique():
+
+            for trip_id in self.feed.trips.trip_id.unique():
                 
+                shape_id = self.feed.trips[self.feed.trips.trip_id == trip_id].shape_id.iloc[0]
+
                 trip_stop_df = stop_time_df[
                     (stop_time_df.trip_id == trip_id) &
                     (stop_time_df.agency_raw_name == agency_raw_name)
                 ].copy()
 
                 related_bus_trip_link_df = agency_trip_link_df[
-                    (agency_trip_link_df.trip_id == trip_id)
+                    (agency_trip_link_df.shape_id == shape_id)
                 ].copy()
 
                 trip_node_df = self.roadway_network.nodes_df[
@@ -1283,7 +1293,7 @@ class Transit(object):
                     trip_node_df,
                     unique_id = ['agency_raw_name', 'stop_id', 'trip_id']
                 )
-        
+                
                 stop_to_node_df = stop_to_node_df.append(
                     trip_stop_df,
                     sort = False,
@@ -1515,14 +1525,34 @@ class Transit(object):
             lambda x : time.strftime('%H:%M:%S', time.gmtime(x)) if ~np.isnan(x) else x)
         stop_times_df['departure_time'] = stop_times_df['departure_time'].apply(
             lambda x : time.strftime('%H:%M:%S', time.gmtime(x)) if ~np.isnan(x) else x)
-
         
         stop_times_df.drop(['first_arrival'], axis = 1, inplace = True)
         
+        # add model node id to stops
+        stop_df = pd.merge(
+            stop_df,
+            self.roadway_network.nodes_df[['osm_node_id', 'model_node_id']],
+            how = 'left',
+            on = 'osm_node_id'
+        )
+
+        # add model node id to shapes
+        shape_point_df = pd.merge(
+            shape_point_df,
+            self.roadway_network.nodes_df[['osm_node_id', 'model_node_id']].rename(
+                columns = {
+                    'osm_node_id' : 'shape_osm_node_id', 
+                    'model_node_id' : 'shape_model_node_id'
+                }
+            ),
+            how = 'left',
+            on = 'shape_osm_node_id'
+        )
+
         route_df = self.feed.routes.copy()
         route_df = pd.merge(
             route_df,
-            trip_df[['agency_raw_name', 'route_id']],
+            trip_df[['agency_raw_name', 'route_id']].drop_duplicates(),
             how = 'inner',
             on = ['agency_raw_name', 'route_id']
         )
@@ -1551,6 +1581,17 @@ class Transit(object):
                             index = False, 
                             sep = ',')
 
+        self.feed.agency.to_csv(os.path.join(path, "agency.txt"), 
+                            index = False, 
+                            sep = ',')
+
+        self.feed.fare_attributes.to_csv(os.path.join(path, "fare_attributes.txt"), 
+                            index = False, 
+                            sep = ',')
+
+        self.feed.fare_rules.to_csv(os.path.join(path, "fare_rules.txt"), 
+                            index = False, 
+                            sep = ',')               
 
 class DotDict(dict):
     """
