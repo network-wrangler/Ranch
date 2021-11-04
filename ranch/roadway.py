@@ -14,7 +14,8 @@ from shapely.geometry import Point
 from .logger import RanchLogger
 from .sharedstreets import read_shst_extraction, extract_osm_link_from_shst_extraction
 from .osm import add_two_way_osm, highway_attribute_list_to_value
-from .utils import fill_na, identify_dead_end_nodes
+from .utils import create_unique_node_id, fill_na, identify_dead_end_nodes, buffer1, get_non_near_connectors, haversine_distance
+from .utils import generate_centroid_connectors_link, generate_centroid_connectors_shape, create_unique_shape_id, create_unique_link_id
 from .parameters import Parameters
 
 class Roadway(object):
@@ -310,6 +311,8 @@ class Roadway(object):
             filename, file_extension = os.path.splitext(county_boundary_file)
             if file_extension in [".shp", ".geojson"]:
                 county_gdf = gpd.read_file(county_boundary_file)
+                self.county_gdf = county_gdf
+                self.county_variable_name = county_variable_name
         
             else:
                 msg = "Invalid boundary file, should be .shp or .geojson"
@@ -337,7 +340,7 @@ class Roadway(object):
         self._drop_alternative_links_between_same_AB_nodes()
 
         ## 5.5 link and node numbering
-        # self._link_node_numbering()
+        self._link_node_numbering()
 
     def _calculate_county(
         self,
@@ -386,6 +389,8 @@ class Roadway(object):
             columns = {county_variable_name : 'county'},
             inplace = True
         )
+        
+        joined_nodes_gdf['county'].fillna('external', inplace = True)
 
         # join back to roadway object
         self.links_df = pd.merge(
@@ -617,6 +622,8 @@ class Roadway(object):
 
         self.nodes_df["model_node_id"] = self.nodes_df["model_node_id"] + self.nodes_df["county_numbering_start"]
 
+        node_osm_model_id_dict = dict(zip(self.nodes_df.osm_node_id, self.nodes_df.model_node_id))
+
         self.links_df["model_link_id"] = self.links_df.groupby(["county"]).cumcount()
 
         self.links_df["county_numbering_start"] = self.links_df["county"].apply(
@@ -624,3 +631,601 @@ class Roadway(object):
         )
 
         self.links_df["model_link_id"] = self.links_df["model_link_id"] + self.links_df["county_numbering_start"]
+
+        self.links_df['A'] = self.links_df['u'].map(node_osm_model_id_dict)
+
+        self.links_df['B'] = self.links_df['v'].map(node_osm_model_id_dict)
+
+    def build_centroid_connectors(
+        self,
+        build_taz_drive: bool = True,
+        build_taz_active_modes: bool = True,
+        build_maz_drive: bool = False,
+        build_maz_active_modes: bool = False,
+        input_taz_polygon_file: str = None,
+        input_taz_node_file: str = None,
+        input_maz_polygon_file: str = None,
+        input_maz_node_file: str = None,
+        taz_unique_id: str = None,
+        maz_unique_id: str = None,
+    ):
+
+        """
+        build centroid connectors
+
+        Inputs:
+            RoadwayNetwork
+            build_taz_drive: Boolean, true when building TAZ drive connectors
+            build_taz_active_modes: Boolean, true when building TAZ bike and walk connectors
+            build_maz_drive: Boolean, true when building MAZ drive connectors
+            build_maz_drive: Boolean, true when building MAZ bike and walk connectors
+            input_taz_polygon_file: polygon shapefile or geojson for TAZ boudnaries
+            input_taz_node_file: node shapefile or geojson for TAZ centroid
+            input_maz_polygon_file: polygon shapefile or geojson for MAZ boudnaries
+            input_maz_node_file: node shapefile or geojson for MAZ centroid     
+        """
+
+        if (build_taz_drive) | (build_taz_active_modes):
+            if input_taz_polygon_file is None:
+                msg = "Missing taz polygon file, specify using input_taz_polygon_file"
+                RanchLogger.error(msg)
+                raise ValueError(msg)
+            else:
+                filename, file_extension = os.path.splitext(input_taz_polygon_file)
+                if file_extension in [".shp", ".geojson"]:
+                    taz_polygon_gdf = gpd.read_file(input_taz_polygon_file)
+                    if taz_polygon_gdf.crs is None:
+                        msg = "Input file {} missing CRS".format(input_taz_polygon_file)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                    else:
+                        RanchLogger.info("input file {} has crs : {}".format(input_taz_polygon_file, taz_polygon_gdf.crs))
+                    if taz_unique_id is None:
+                        taz_polygon_gdf['taz_id'] = range(1, 1+len(taz_polygon_gdf))
+                    elif taz_unique_id not in taz_polygon_gdf.columns:
+                        msg = "Input file {} does not have unique ID {}".format(input_taz_polygon_file, taz_unique_id)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                    else:
+                        None
+                else:
+                    msg = "Invalid network file {}, should be .shp or .geojson".format(input_taz_polygon_file)
+                    RanchLogger.error(msg)
+                    raise ValueError(msg)
+        
+            if input_taz_node_file is not None:
+                filename, file_extension = os.path.splitext(input_taz_node_file)
+                if file_extension in [".shp", ".geojson"]:
+                    taz_node_gdf = gpd.read_file(input_taz_node_file)
+                    if taz_node_gdf.crs is None:
+                        msg = "Input file {} missing CRS".format(input_taz_node_file)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                    else:
+                        RanchLogger.info("input file {} has crs : {}".format(input_taz_node_file, taz_node_gdf.crs))
+                    if taz_unique_id not in taz_node_gdf.columns:
+                        msg = "Input file {} does not have unique ID {}".format(input_taz_node_file, taz_unique_id)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                else:
+                    msg = "Invalid network file {}, should be .shp or .geojson".format(input_taz_node_file)
+                    RanchLogger.error(msg)
+                    raise ValueError(msg)
+
+            else:
+                RanchLogger.info("Missing taz node file, will use input taz polygon centroid")
+
+                taz_node_gdf = taz_polygon_gdf.copy()
+                taz_node_gdf['geometry'] = taz_node_gdf['geometry'].representative_point()
+
+            # convert to lat-long
+            taz_polygon_gdf = taz_polygon_gdf.to_crs(epsg = 4269)
+            taz_node_gdf = taz_node_gdf.to_crs(epsg = 4269)
+            
+            if 'model_node_id' not in taz_node_gdf.columns:
+                self.assign_model_node_id_to_taz(taz_node_gdf)
+
+            if build_taz_drive:
+                self.build_taz_drive_connector(
+                    taz_polygon_gdf
+                    )
+            if build_maz_active_modes:
+                self.build_taz_active_modes_connector(
+                    taz_polygon_gdf
+                )
+
+        if (build_maz_drive) | (build_maz_active_modes):
+            if input_maz_polygon_file is None:
+                msg = "Missing maz polygon file, specify using input_maz_polygon_file"
+                RanchLogger.error(msg)
+                raise ValueError(msg)
+            else:
+                filename, file_extension = os.path.splitext(input_maz_polygon_file)
+                if file_extension in [".shp", ".geojson"]:
+                    maz_polygon_gdf = gpd.read_file(input_maz_polygon_file)
+                    if maz_polygon_gdf.crs is None:
+                        msg = "Input file {} missing CRS".format(input_maz_polygon_file)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                    else:
+                        RanchLogger.info("input file {} has crs : {}".format(input_maz_polygon_file, maz_polygon_gdf.crs))
+                else:
+                    msg = "Invalid network file {}, should be .shp or .geojson".format(input_maz_polygon_file)
+                    RanchLogger.error(msg)
+                    raise ValueError(msg)
+        
+            if input_maz_node_file is not None:
+                filename, file_extension = os.path.splitext(input_maz_node_file)
+                if file_extension in [".shp", ".geojson"]:
+                    maz_node_gdf = gpd.read_file(input_maz_node_file)
+                    if maz_node_gdf.crs is None:
+                        msg = "Input file {} missing CRS".format(input_maz_node_file)
+                        RanchLogger.error(msg)
+                        raise ValueError(msg)
+                    else:
+                        RanchLogger.info("input file {} has crs : {}".format(input_maz_node_file, maz_node_gdf.crs))
+                else:
+                    msg = "Invalid network file {}, should be .shp or .geojson".format(input_maz_node_file)
+                    RanchLogger.error(msg)
+                    raise ValueError(msg)
+
+            else:
+                RanchLogger.info("Missing maz node file, will use input maz polygon centroid")
+
+                maz_node_gdf = maz_polygon_gdf['geometry'].representative_centroids()
+
+            # convert to lat-long
+            maz_polygon_gdf = maz_polygon_gdf.to_crs(self.parameters.standard_crs)
+            maz_node_gdf = maz_node_gdf.to_crs(self.parameters.standard_crs)
+
+            if build_taz_drive:
+                self.build_taz_drive_connector(
+                    taz_node_gdf, 
+                    taz_polygon_gdf
+                    )
+            if build_maz_active_modes:
+                self.build_taz_active_modes_connector(
+                    taz_node_gdf, 
+                    taz_polygon_gdf
+                )
+
+    def assign_model_node_id_to_taz(
+        self,
+        taz_node_gdf
+    ):
+        """
+        attribute taz node with county, model_node_id, drive_access, walk_access, bike_access
+        """
+        
+        # add county
+        taz_node_gdf = gpd.sjoin(
+            taz_node_gdf,
+            self.county_gdf[['geometry', self.county_variable_name]],
+            how = 'left',
+            op = 'within'
+        )
+
+        taz_node_gdf.rename(columns = {self.county_variable_name : 'county'}, inplace = True)
+        taz_node_gdf['county'].fillna('external', inplace = True)
+
+        # assign model node id based on county taz rules
+        taz_node_gdf["model_node_id"] = taz_node_gdf.groupby(["county"]).cumcount()
+
+        taz_node_gdf["county_numbering_start"] = taz_node_gdf["county"].apply(
+            lambda x: self.parameters.county_taz_range[x]['start']
+        )
+
+        taz_node_gdf["model_node_id"] = taz_node_gdf["model_node_id"] + taz_node_gdf["county_numbering_start"]
+
+        taz_node_gdf['drive_access'] = 1
+        taz_node_gdf['walk_access'] = 1
+        taz_node_gdf['bike_access'] = 1
+
+        self.taz_node_gdf = taz_node_gdf
+
+    def build_taz_drive_connector(
+        self,
+        taz_polygon_df: GeoDataFrame,
+        num_connectors_per_centroid: int = 4
+    ):
+        """
+        build taz drive centroid connectors
+        """
+
+        # step 1
+        # find nodes that have only two assignable/drive 
+        # geometries (not reference)
+
+        node_two_geometry_df = self.get_non_intersection_drive_nodes()
+
+        # step 2
+        # for each zone, find nodes that have only two assignable/drive 
+        # geometries (not reference) - good intersections
+
+        taz_good_intersection_df = Roadway.get_nodes_in_zones(
+            node_two_geometry_df,
+            taz_polygon_df
+        )
+
+        # step 3
+        # for zones with fewer than 4 good intersections
+        # use drive nodes
+        exclude_links_df = self.links_df[
+            self.links_df.roadway.isin(
+                ["motorway_link", "motorway", "trunk", "trunk_link"]
+            )
+        ].copy()
+
+        drive_node_gdf = self.nodes_df[
+            (self.nodes_df.drive_access == 1) & 
+            ~(self.nodes_df.osm_node_id.isin(
+                exclude_links_df.u.tolist() + exclude_links_df.v.tolist()))
+        ].copy()
+
+        taz_drive_node_df = Roadway.get_nodes_in_zones(
+            drive_node_gdf,
+            taz_polygon_df
+        )
+
+        # step 4
+        # choose nodes for taz
+        taz_centroid_gdf = self.taz_node_gdf.copy()
+        taz_loading_node_df = Roadway.get_taz_loading_nodes(
+            taz_centroid_gdf,
+            taz_good_intersection_df,
+            taz_drive_node_df,
+            num_connectors_per_centroid
+        )
+        
+        # step 5
+        # create links and shapes between taz and chosen nodes
+        taz_cc_shape_gdf = generate_centroid_connectors_shape(
+            taz_loading_node_df
+        )
+        #taz_cc_shape_gdf = taz_cc_shape_gdf.drop(['ld_point', 'c_point'], axis = 1)
+        
+        #taz_cc_shape_gdf = gpd.GeoDataFrame(
+        #    taz_cc_shape_gdf,
+        #    crs = self.parameters.standard_crs
+        #)
+
+        join_gdf = taz_cc_shape_gdf.copy()
+        join_gdf['geometry'] = join_gdf['geometry'].centroid
+
+        join_gdf = gpd.sjoin(
+            join_gdf,
+            self.county_gdf[['geometry', self.county_variable_name]],
+            how = 'left',
+            op = 'within'
+        )
+
+        taz_cc_shape_gdf['county'] = join_gdf[self.county_variable_name]
+
+        taz_cc_link_gdf = generate_centroid_connectors_link(
+            taz_cc_shape_gdf
+        )
+
+        taz_cc_link_gdf['roadway'] = 'taz'
+        taz_cc_link_gdf['drive_access'] = 1
+        taz_cc_link_gdf['bike_access'] = 1
+        taz_cc_link_gdf['walk_access'] = 1
+
+        cc_link_columns_list = ["A", "B", "drive_access", "walk_access", "bike_access", 
+                            "shstGeometryId", "id", "u", "v", "fromIntersectionId", "toIntersectionId", 'county', 'roadway', 'geometry']
+        taz_cc_link_gdf = taz_cc_link_gdf[cc_link_columns_list].copy()
+    
+        cc_shape_columns_list = ["id", "geometry", "fromIntersectionId", 'county'] # no 'noIntersectionId' because shape is only in the inbound direction
+        taz_cc_shape_gdf = taz_cc_shape_gdf[cc_shape_columns_list].drop_duplicates(subset = ["id"]).copy()
+
+        self.taz_cc_shape_gdf = taz_cc_shape_gdf
+        self.taz_cc_link_gdf = taz_cc_link_gdf
+
+    def get_non_intersection_drive_nodes(
+        self
+    ):
+
+        """
+        return nodes that have only two drivable geometries
+        """
+        drive_links_gdf = self.links_df[
+            ~(self.links_df.roadway.isin(
+                ["motorway_link", "motorway", "trunk", "trunk_link", "service"]
+                )
+            ) &
+            (self.links_df.drive_access == 1)
+        ].copy()
+
+        a_geometry_count_df = drive_links_gdf.groupby(
+            ["u", "shstGeometryId"]
+        )["shstReferenceId"].count().reset_index().rename(
+            columns = {"u" : "osm_node_id"}
+        )
+
+        b_geometry_count_df = drive_links_gdf.groupby(
+            ["v", "shstGeometryId"]
+        )["shstReferenceId"].count().reset_index().rename(
+            columns = {"v" : "osm_node_id"}
+        )
+
+        node_geometry_count_df = pd.concat(
+            [a_geometry_count_df, b_geometry_count_df], 
+            ignore_index = True, 
+            sort = False
+            )
+
+        node_geometry_count_df = node_geometry_count_df.groupby(
+            ["osm_node_id", "shstGeometryId"]
+        ).count().reset_index().groupby(
+            ["osm_node_id"]
+        )["shstGeometryId"].count().reset_index()
+
+        node_two_geometry_df = node_geometry_count_df[
+            node_geometry_count_df.shstGeometryId == 2
+        ].copy()
+        
+        node_two_geometry_df = self.nodes_df[
+            self.nodes_df.osm_node_id.isin(
+                node_two_geometry_df.osm_node_id.tolist())
+        ].copy()
+
+        return node_two_geometry_df
+
+    def get_nodes_in_zones(
+        nodes_gdf,
+        zones_gdf
+    ):
+        """
+        return nodes and the zones they are in
+
+        Input:
+            nodes_gdf: nodes geo data frame, points
+            zones_gdf: zones geo data frame, polygons
+        """
+        polygon_buffer_gdf = zones_gdf.copy()
+
+        polygon_buffer_gdf["geometry_buffer"] = polygon_buffer_gdf["geometry"].apply(
+            lambda x: buffer1(x)
+        )
+        polygon_buffer_gdf.rename(
+            columns = {"geometry" : "geometry_orig", 
+            "geometry_buffer" : "geometry"}, 
+            inplace = True
+        )
+        nodes_in_zones_gdf = gpd.sjoin(
+            nodes_gdf, 
+            polygon_buffer_gdf[["geometry", "taz_id"]], 
+            how = "left", 
+            op = "intersects"
+        )
+
+        return nodes_in_zones_gdf
+
+    def get_taz_loading_nodes(
+        taz_centroid_df,
+        good_intersection_df,
+        drive_nodes_df,
+        num_connectors_per_centroid
+    ):
+        """
+        for each zone, return chosen loading point
+        """
+
+        good_intersection_df['preferred'] = 1
+        drive_nodes_df['preferred'] = 0
+
+        all_load_nodes_df = pd.concat(
+            [good_intersection_df, drive_nodes_df],
+            sort = False,
+            ignore_index=True
+        )
+        
+        all_load_nodes_df = all_load_nodes_df[
+            all_load_nodes_df['taz_id'].notnull()
+        ]
+
+        all_load_nodes_df["ld_point"] = all_load_nodes_df["geometry"].apply(
+            lambda x: list(x.coords)[0]
+        )
+        taz_centroid_df["c_point"] = taz_centroid_df["geometry"].apply(
+            lambda x: list(x.coords)[0]
+        )
+
+        all_load_nodes_df = pd.merge(
+            all_load_nodes_df.drop('geometry', axis = 1),
+            taz_centroid_df.drop('geometry', axis = 1),
+            how = 'left',
+            on = ['taz_id']
+        )
+
+        all_load_nodes_df['distance'] = all_load_nodes_df.apply(
+            lambda x: haversine_distance(
+                list(x.ld_point), list(x.c_point)
+            ),
+            axis = 1
+        )
+        
+        # sort on preferred, distance
+        all_load_nodes_df.sort_values(
+            by = ['preferred', 'distance'],
+            ascending = [False, True],
+            inplace=True
+        )
+
+        all_load_nodes_df.drop_duplicates(
+            subset = ['osm_node_id', 'taz_id'],
+            inplace = True
+        )
+
+        all_load_nodes_df = get_non_near_connectors(
+            all_load_nodes_df, 
+            num_connectors_per_centroid,
+            'taz_id')
+
+        return all_load_nodes_df
+
+    def standard_format(
+        self,
+        county_boundary_file: str,
+        county_variable_name: str
+    ):
+        """
+        pipeline step 8 create and write out roadway in standard format
+
+        1. link and node numbering
+        2. add locationReferences
+        """
+
+        # calculate county in case new links and nodes are generated
+
+        if not county_boundary_file:
+            msg = "Missing polygon file for county boundary."
+            RanchLogger.error(msg)
+            raise ValueError(msg)
+
+        if county_boundary_file:
+            filename, file_extension = os.path.splitext(county_boundary_file)
+            if file_extension in [".shp", ".geojson"]:
+                county_gdf = gpd.read_file(county_boundary_file)
+        
+            else:
+                msg = "Invalid boundary file, should be .shp or .geojson"
+                RanchLogger.error(msg)
+                raise ValueError(msg)
+
+        RanchLogger.info("Starting Step 8 creating roadway standard format")
+
+        ## 1. join county name to shapes and nodes
+        #self._calculate_county(
+        #    county_gdf = county_gdf,
+        #    county_variable_name = county_variable_name
+        #)
+        """
+        ## add unique ranch link / node ID, based on coordinates
+        self.nodes_df['ranch_node_id'] = np.where(
+            self.nodes_df['shst_node_id'].notnull(),
+            self.nodes_df['shst_node_id'],
+            self.nodes_df['geometry'].apply(
+                lambda x: create_unique_node_id(x)
+                )
+        )
+
+        RanchLogger.info('{} nodes has {} unique osm ids, {} unique ranch ids'.format(
+            len(self.nodes_df), 
+            self.nodes_df.osm_node_id.nunique(),
+            self.nodes_df.ranch_node_id.nunique()
+            )
+        )
+
+        node_osm_ranch_dict = dict(zip(self.nodes_df.osm_node_id, self.nodes_df.ranch_node_id))
+
+        self.shapes_df['ranch_shape_id'] = np.where(
+            self.shapes_df['id'].notnull(),
+            self.shapes_df['id'],
+            self.shapes_df['geometry'].apply(
+                lambda x: create_unique_shape_id(x)
+            )
+        )
+
+        RanchLogger.info('{} shapes has {} unique shst id {} unique ranch ids'.format(
+            len(self.shapes_df), 
+            self.shapes_df.id.nunique(),
+            self.shapes_df.ranch_shape_id.nunique()
+            )
+        )
+
+        RanchLogger.info('{} links has {} unique shst ids'.format(
+            len(self.links_df), self.links_df.shstReferenceId.nunique()
+            )
+        )
+
+        self.links_df['ranch_link_id'] = np.where(
+            self.links_df['shstReferenceId'].notnull(),
+            self.links_df['shstReferenceId'],
+            self.links_df.apply(
+                lambda x: create_unique_link_id(
+                    self.nodes_df[
+                        self.nodes_df['osm_node_id'] == x.u
+                    ]['geometry'].iloc[0],
+                    self.nodes_df[
+                        self.nodes_df['osm_node_id'] == x.v
+                    ]['geometry'].iloc[0],
+                ),
+                axis =1
+            )
+        )
+
+        RanchLogger.info('{} links has {} unique ranch ids'.format(
+            len(self.links_df), self.links_df.ranch_link_id.nunique()
+            )
+        )
+
+        self.links_df['p'] = self.links_df['u'].map(node_osm_ranch_dict)
+        self.links_df['q'] = self.links_df['v'].map(node_osm_ranch_dict)
+        """
+        ## 2. add length in feet
+
+        self.links_df = Roadway._add_length_in_feet(self.links_df)
+
+        ## 3. add locationReferences to links
+
+        self.links_df= Roadway._add_location_references(self.nodes_df,self.links_df)
+
+        ## 4. add model link / node ID following county rules
+
+        #self._link_node_numbering()
+
+    def _add_length_in_feet(
+        linestring_gdf: GeoDataFrame,
+        variable: str = 'length'
+    ):
+        """
+        add length in feet to line geodataframe
+        """
+
+        geom_length = linestring_gdf[['geometry']].copy()
+        geom_length = geom_length.to_crs(epsg = 26915)
+        geom_length[variable] = geom_length.length
+
+        linestring_gdf[variable] = geom_length[variable]
+
+        return linestring_gdf
+
+    def _add_location_references(
+        nodes: GeoDataFrame,
+        links: GeoDataFrame,
+        variable: str = 'locationReferences'
+    ):
+        """
+        add location reference to links
+        """
+        node_gdf = nodes.copy()
+        link_gdf = links.copy()
+
+        node_gdf['X'] = node_gdf['geometry'].apply(lambda p: p.x)
+        node_gdf['Y'] = node_gdf['geometry'].apply(lambda p: p.y)
+        node_gdf['point'] = [list(xy) for xy in zip(node_gdf.X, node_gdf.Y)]
+        node_dict = dict(zip(node_gdf.model_node_id, node_gdf.point))
+    
+        link_gdf['A_point'] = link_gdf['A'].map(node_dict)
+        link_gdf['B_point'] = link_gdf['B'].map(node_dict)
+
+        link_gdf[variable] = link_gdf.apply(
+            lambda x: [
+                {
+                    'sequence':1, 
+                    'point': x['A_point'],
+                    'distanceToNextRef':x['length'],
+                    'intersectionId':x['fromIntersectionId']
+                },
+                {
+                    'sequence':2,
+                    'point': x['B_point'],
+                    'intersectionId':x['toIntersectionId']
+                }
+            ],
+            axis = 1
+        )
+
+        links[variable] = link_gdf[variable]
+
+        return links

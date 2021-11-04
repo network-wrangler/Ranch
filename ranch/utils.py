@@ -13,8 +13,11 @@ import json
 from functools import partial
 import pyproj
 from shapely.ops import transform
+import hashlib
 
 from .logger import RanchLogger
+from .parameters import Parameters
+from .parameters import standard_crs
 
 def link_df_to_geojson(df, properties):
     """
@@ -311,7 +314,7 @@ def find_new_load_point(abm_load_ref_df, all_node):
     return new_load_point_gdf.rename(columns = {'geometry' : 'geometry_ld'})
 
 
-def generate_centroid_connectors(run_type, existing_drive_cc_df, node_gdf, existing_node_df):
+def generate_centroid_connectors_shape(zone_loading_node_df):
     """
     calls function to generate loading point reference table, 
     and calls function to find loading points
@@ -321,51 +324,51 @@ def generate_centroid_connectors(run_type, existing_drive_cc_df, node_gdf, exist
     return centroid connectors and centroids
     """
     
-    if run_type == 'drive':
-        abm_load_ref_df = num_of_drive_loadpoint_per_centroid(existing_drive_cc_df, existing_node_df)
-    if (run_type == 'walk')|(run_type == 'bike'):
-        abm_load_ref_df = num_of_walk_bike_loadpoint_per_centroid(existing_node_df)
-
-    new_load_point_gdf = find_new_load_point(abm_load_ref_df, node_gdf)
-    
-    new_load_point_gdf = pd.merge(new_load_point_gdf,
-                                 existing_node_df[['N', 'X', 'Y']],
-                                 how = 'left', 
-                                 left_on = 'c',
-                                 right_on = 'N')
-    
-    new_load_point_gdf['geometry_c'] = [Point(xy) for xy in zip(new_load_point_gdf['X'], new_load_point_gdf['Y'])]
-    new_load_point_gdf.drop(['N', 'X', 'Y'], axis = 1, inplace = True)
-    
-    #centroid coordinates
-    new_centroid_gdf = new_load_point_gdf.copy()[['c', 'geometry_c']]
-    new_centroid_gdf.rename(columns = {'c' : 'model_node_id', 'geometry_c' : 'geometry'}, inplace = True)
-    new_centroid_gdf.drop_duplicates(['model_node_id'], inplace = True)
-
-    new_centroid_gdf = gpd.GeoDataFrame(new_centroid_gdf)
-    
     #inbound cc
-    new_cc_gdf = new_load_point_gdf.copy()
-    new_cc_gdf['geometry'] = [LineString(xy) for xy in zip(new_cc_gdf['geometry_ld'], new_cc_gdf['geometry_c'])]
+    new_cc_gdf = zone_loading_node_df.copy()
+    new_cc_gdf['geometry'] = [LineString(xy) for xy in zip(new_cc_gdf['ld_point'], new_cc_gdf['c_point'])]
 
     new_cc_gdf["fromIntersectionId"] = new_cc_gdf['shst_node_id']
-    new_cc_gdf["shstGeometryId"] = range(1, 1+len(new_cc_gdf))
-    new_cc_gdf["shstGeometryId"] = new_cc_gdf["shstGeometryId"].apply(lambda x: "cc" + str(x))
+    new_cc_gdf["shstGeometryId"] = new_cc_gdf['geometry'].apply(lambda x:create_unique_shape_id(x))
     new_cc_gdf["id"] = new_cc_gdf["shstGeometryId"]
+
+    new_cc_gdf = new_cc_gdf.rename(columns = {'osm_node_id' : 'u', 'model_node_id_x' : 'A', 'model_node_id_y' : 'B'})
+
+    new_cc_gdf = new_cc_gdf[['A', 'B', 'u', 'fromIntersectionId', 'shstGeometryId', 'id', 'geometry']]
+
+    new_cc_gdf = gpd.GeoDataFrame(
+        new_cc_gdf,
+        crs = standard_crs
+    )
     
-    new_cc_gdf = new_cc_gdf.rename(columns = {'model_node_id' : 'A', 
-                                              'c' : 'B',
-                                             "osm_node_id" : "u"})
-    
-    #remove duplicates
-    new_cc_gdf.drop_duplicates(['A', 'B'], inplace = True)
-    
-    new_cc_gdf.crs = {'init' : 'epsg:26915'}
-    new_cc_gdf = new_cc_gdf.to_crs(epsg = 4326)
-    new_centroid_gdf.crs = {'init' : 'epsg:26915'}
-    new_centroid_gdf = new_centroid_gdf.to_crs(epsg = 4326)
-    
-    return new_cc_gdf, new_centroid_gdf
+    return new_cc_gdf
+
+def generate_centroid_connectors_link(cc_shape_gdf):
+    """
+    generate two way connector links based on one-way shape
+
+    input: connector shapes in one direction (inbound)
+    output: connector links in both directions
+    """
+
+    cc_link_gdf = cc_shape_gdf.copy()
+
+    cc_link_gdf = cc_link_gdf.rename(
+        columns = {
+            "A" : "B",
+            "B" : "A",
+            "u" : "v",
+            "fromIntersectionId" : "toIntersectionId"
+        }
+    )
+
+    cc_link_gdf = pd.concat(
+        [cc_shape_gdf, cc_link_gdf],
+        sort = False,
+        ignore_index= True
+    )
+
+    return cc_link_gdf
 
 
 def consolidate_cc(link, drive_centroid, node, new_drive_cc, new_walk_cc = pd.DataFrame(), new_bike_cc = pd.DataFrame()):
@@ -546,34 +549,47 @@ def isDuplicate(a, b, zoneUnique):
             
     zoneUnique += [a]
     
+def haversine_distance(origin: list, destination: list, units = "miles"):
+    """
+    Calculates haversine distance between two points
 
-def get_non_near_connectors(all_cc):
-    
-    all_cc_link_gdf = all_cc.copy()
-    
-    all_cc_link_gdf = all_cc_link_gdf[all_cc_link_gdf.B.isin(taz_N_list + maz_N_list)].copy()
-    
-    all_cc_link_gdf = all_cc_link_gdf[["A", "B", "id", "geometry"]]
-    
-    all_cc_link_gdf["ld_point"] = all_cc_link_gdf["geometry"].apply(lambda x: list(x.coords)[0])
-    all_cc_link_gdf["c_point"] = all_cc_link_gdf["geometry"].apply(lambda x: list(x.coords)[1])
-    
-    all_cc_link_gdf["ld_point_tuple"] = all_cc_link_gdf["ld_point"].apply(lambda x: tuple(x))
-    
-    all_cc_link_gdf["good_point"] = np.where(all_cc_link_gdf.A.isin(node_two_geometry_id_list),
-                                            1,
-                                            0)
+    Args:
+    origin: lat/lon for point A
+    destination: lat/lon for point B
+    units: either "miles" or "meters"
+
+    Returns: string
+    """
+
+    lon1, lat1 = origin
+    lon2, lat2 = destination
+    radius = 6378137  # meter
+
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(
+        math.radians(lat1)
+    ) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) * math.sin(dlon / 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    d = {"meters": radius * c } # meters
+    d["miles"] = d["meters"] * 0.000621371  # miles
+
+    return d[units]
+
+def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_id:str):
     
     keep_cc_gdf = pd.DataFrame()
     
-    for c in all_cc_link_gdf.B.unique():
+    for c in all_cc_link_gdf[zone_id].unique():
+        #print("zone id {}".format(c))
         
-        zone_cc_gdf = all_cc_link_gdf[all_cc_link_gdf.B == c].copy()
+        zone_cc_gdf = all_cc_link_gdf[all_cc_link_gdf[zone_id] == c].copy()
         
         centroid = zone_cc_gdf.c_point.iloc[0]
         
         # if the zone has less than 4 cc, keep all
-        if len(zone_cc_gdf) <= 4:
+        if len(zone_cc_gdf) <= num_connectors_per_centroid:
             keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort = False, ignore_index = True)
     
         # if the zone has more than 4 cc
@@ -593,52 +609,64 @@ def get_non_near_connectors(all_cc):
                 if len(zoneUnique) == 4:
                     break
                 
-            zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.ld_point_tuple.isin([tuple(z) for z in zoneUnique])]
+            zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.ld_point.isin([tuple(z) for z in zoneUnique])]
                 
             keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort = False, ignore_index = True)
-            """
-            ## if more than 4 good cc, apply non-near method
-            if zone_cc_gdf.good_point.sum() > 4:
-                
-                zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.good_point == 1].copy()
-                
-                zoneUnique = []
-                
-                zoneCandidate = zone_cc_gdf["B_point"].to_list()
-                #print("zone candidate {}".format(zoneCandidate))
-                for point in zoneCandidate:
-                    #print("evaluate: {}".format(point))
-                    if len(zoneUnique) == 0:
-                        zoneUnique += [point]
-                    else:
-                        isDuplicate(point, centroid, zoneUnique)
-                    #print("zone unique {}".format(zoneUnique))
-                    if len(zoneUnique) == 4:
-                        break
-                
-                zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.B_point_tuple.isin([tuple(z) for z in zoneUnique])]
-                
-                keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort = False, ignore_index = True)
-    
-            ## if less than 4 good cc, keep good cc, apply non-near to pick additional connectors
-            else:
-                non_near_zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.good_point == 1].copy()
-                
-                ## keep good cc, get non near based on good cc
-                
-                zoneUnique = non_near_zone_cc_gdf["B_point"].to_list()
-                
-                zoneCandidate = zone_cc_gdf[zone_cc_gdf.good_point == 0]["B_point"].to_list()
-                
-                for point in zoneCandidate:
-                    #print("evaluate: {}".format(point))
-                    isDuplicate(point, centroid, zoneUnique)
-                    #print("zone unique {}".format(zoneUnique))
-                    if len(zoneUnique) == 4:
-                        break
-                        
-                zone_cc_gdf = zone_cc_gdf[zone_cc_gdf.B_point_tuple.isin([tuple(z) for z in zoneUnique])]
-                
-                keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, ignore_index = True)
-            """    
+             
     return keep_cc_gdf
+
+def create_unique_shape_id(line_string: LineString):
+    """
+    Creates a unique hash id using the coordinates of the geomtery
+
+    Args:
+    line_string: Line Geometry as a LineString
+
+    Returns: string
+    """
+
+    x1, y1 = list(line_string.coords)[0]  # first co-ordinate (A node)
+    x2, y2 = list(line_string.coords)[-1]  # last co-ordinate (B node)
+
+    message = "Geometry {} {} {} {}".format(x1, y1, x2, y2)
+    unhashed = message.encode("utf-8")
+    hash = hashlib.md5(unhashed).hexdigest()
+
+    return hash
+
+def create_unique_node_id(point: Point):
+    """
+    Creates a unique hash id using the coordinates of the geomtery
+
+    Args:
+    point: Point Geometry
+
+    Returns: string
+    """
+
+    x1, y1 = list(point.coords)[0]  # first co-ordinate (A node)
+
+    message = "Geometry {} {}".format(x1, y1)
+    unhashed = message.encode("utf-8")
+    hash = hashlib.md5(unhashed).hexdigest()
+
+    return hash
+
+def create_unique_link_id(u_node: Point, v_node: Point):
+    """
+    Creates a unique hash id using the coordinates of the geomtery
+
+    Args:
+    line_string: Line Geometry as a LineString
+
+    Returns: string
+    """
+
+    x1, y1 = list(u_node.coords)[0]  # first co-ordinate (A node)
+    x2, y2 = list(v_node.coords)[0]  # last co-ordinate (B node)
+
+    message = "Geometry {} {} {} {}".format(x1, y1, x2, y2)
+    unhashed = message.encode("utf-8")
+    hash = hashlib.md5(unhashed).hexdigest()
+
+    return hash

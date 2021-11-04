@@ -1,6 +1,10 @@
 import os
 from .logger import RanchLogger
 
+from pyproj import CRS
+
+standard_crs = CRS("epsg:4326")
+
 def get_base_dir(ranch_base_dir=os.getcwd()):
     d = ranch_base_dir
     for i in range(3):
@@ -42,6 +46,20 @@ class Parameters:
 
         self.network_type_file = os.path.join(self.settings_location, "network_type_indicator.csv")
 
+        self.county_taz_range = {
+            "San Francisco" : {"start" : 1, "end" : 9999},
+            "San Mateo" : {"start" : 100001, "end" : 109999},
+            "Santa Clara" : {"start" : 200001, "end" : 209999},
+            "Alameda" : {"start" : 300001, "end" : 309999},
+            "Contra Costa" : {"start" : 400001, "end" : 409999},
+            "Solano" : {"start" : 500001, "end" : 509999},
+            "Napa" : {"start" : 600001, "end" : 609999},
+            "Sonoma" : {"start" : 700001, "end" : 709999},
+            "Marin" : {"start" : 800001, "end" : 804999},
+            "San Joaquin" : {"start" : 805001, "end" : 809999},
+            'external' : {'start' : 900001}
+        }
+
         self.county_node_range = {
             "San Francisco" : {"start" : 1000000, "end" : 1500000},
             "San Mateo" : {"start" : 1500000, "end" : 2000000},
@@ -53,6 +71,7 @@ class Parameters:
             "Sonoma" : {"start" : 4500000, "end" : 5000000},
             "Marin" : {"start" : 5000000, "end" : 5250000},
             "San Joaquin" : {"start" : 5250000, "end" : 5500000},
+            'external' : {"start" : 10000000},
         }
 
         self.county_link_range = {
@@ -98,5 +117,7 @@ class Parameters:
                 "motorway" : 0.9
             },
         }
+
+        self.standard_crs = CRS("epsg:4326")
 
         self.__dict__.update(kwargs)
