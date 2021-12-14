@@ -390,7 +390,7 @@ class Roadway(object):
             inplace = True
         )
         
-        joined_nodes_gdf['county'].fillna('external', inplace = True)
+        joined_nodes_gdf['county'].fillna('San Joaquin', inplace = True)
 
         # join back to roadway object
         self.links_df = pd.merge(
@@ -680,6 +680,8 @@ class Roadway(object):
                         raise ValueError(msg)
                     else:
                         RanchLogger.info("input file {} has crs : {}".format(input_taz_polygon_file, taz_polygon_gdf.crs))
+                        # convert to lat-long
+                        taz_polygon_gdf = taz_polygon_gdf.to_crs(epsg = 4269)
                     if taz_unique_id is None:
                         taz_polygon_gdf['taz_id'] = range(1, 1+len(taz_polygon_gdf))
                     elif taz_unique_id not in taz_polygon_gdf.columns:
@@ -707,6 +709,9 @@ class Roadway(object):
                         msg = "Input file {} does not have unique ID {}".format(input_taz_node_file, taz_unique_id)
                         RanchLogger.error(msg)
                         raise ValueError(msg)
+
+                    # convert to lat-long
+                    taz_node_gdf = taz_node_gdf.to_crs(epsg = 4269)
                 else:
                     msg = "Invalid network file {}, should be .shp or .geojson".format(input_taz_node_file)
                     RanchLogger.error(msg)
@@ -715,12 +720,18 @@ class Roadway(object):
             else:
                 RanchLogger.info("Missing taz node file, will use input taz polygon centroid")
 
+                taz_polygon_gdf = gpd.sjoin(
+                    taz_polygon_gdf,
+                    self.county_gdf[['geometry', self.county_variable_name]],
+                    how = 'left',
+                    op = 'intersects'
+                )
+
+                taz_polygon_gdf.rename(columns = {self.county_variable_name : 'county'}, inplace = True)
+                taz_polygon_gdf['county'].fillna('external', inplace = True)
+
                 taz_node_gdf = taz_polygon_gdf.copy()
                 taz_node_gdf['geometry'] = taz_node_gdf['geometry'].representative_point()
-
-            # convert to lat-long
-            taz_polygon_gdf = taz_polygon_gdf.to_crs(epsg = 4269)
-            taz_node_gdf = taz_node_gdf.to_crs(epsg = 4269)
             
             if 'model_node_id' not in taz_node_gdf.columns:
                 self.assign_model_node_id_to_taz(taz_node_gdf)
@@ -796,18 +807,7 @@ class Roadway(object):
         """
         attribute taz node with county, model_node_id, drive_access, walk_access, bike_access
         """
-        
-        # add county
-        taz_node_gdf = gpd.sjoin(
-            taz_node_gdf,
-            self.county_gdf[['geometry', self.county_variable_name]],
-            how = 'left',
-            op = 'within'
-        )
-
-        taz_node_gdf.rename(columns = {self.county_variable_name : 'county'}, inplace = True)
-        taz_node_gdf['county'].fillna('external', inplace = True)
-
+        print(taz_node_gdf.county.value_counts(dropna = False))
         # assign model node id based on county taz rules
         taz_node_gdf["model_node_id"] = taz_node_gdf.groupby(["county"]).cumcount()
 

@@ -15,5 +15,8 @@ eggs/
 *.egg
 *.egg-info/
 
-# data
+# Data
 data/
+
+# Tests
+tests/scratch

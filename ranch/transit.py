@@ -145,6 +145,19 @@ class Transit(object):
 
         return transit_network
 
+    def build_standard_transit_network(
+        self,
+    ):
+        """
+        one-call method for transit, instead of calling each sub-module
+        """
+        self.get_representative_trip_for_route()
+        self.snap_stop_to_node()
+        self.route_bus_trip()
+        self.update_bus_stop_node()
+        self.route_rail_trip()
+        self.create_shape_node_table()
+        self.create_freq_table()
 
     def get_representative_feed_from_gtfs(feed_path: str):
         """
@@ -274,7 +287,7 @@ class Transit(object):
         
         """
         
-        RanchLogger.info('Getting representative trip for rach route by time of day and direction...')
+        RanchLogger.info('Getting representative trip for each route by time of day and direction...')
         
         # get the first stop of each trip to determine the time period for each trip
         # process time
@@ -1367,6 +1380,14 @@ class Transit(object):
 
         column_list = self.feed.stops.columns.values.tolist() + ['trip_id']
         self.bus_stops = stop_df[column_list]
+    
+    #TODO rail codes from notebooks to ranch
+    def route_rail_trip(
+        self
+    ):
+        """
+        """
+        None
 
     def create_freq_table(
         self

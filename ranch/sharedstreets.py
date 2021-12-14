@@ -61,6 +61,8 @@ def run_shst_extraction(
             driver = "GeoJSON"
         )
 
+        RanchLogger.info('extracting for polygon {}'.format(i))
+
         _run_shst_extraction(
             input_file_name = "boundary."+str(i),
             output_dir = output_dir
