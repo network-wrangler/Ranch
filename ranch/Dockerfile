@@ -1,6 +1,6 @@
 #to build the shst image, run the following line
 #docker build -t shst .
-#example commands to run the following lines in cmd
+#example commands to run shst in cmd if needed
 #docker run -it --rm -v /local/path:/usr/node/ shst:latest /bin/bash
 #docker run -it --rm -v /local/path:/usr/node/ shst:latest shst extract usr/node/boundary_ii.geojson --out=usr/node/ii.geojson --metadata --tile-hierarchy=8 --tiles
 #docker run -it --rm -v /local/path:/usr/node/ shst:latest shst match /usr/node/point_1.in.geojson --out=/usr/node/out.geojson --tile-hierarchy=8
