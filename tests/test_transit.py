@@ -349,7 +349,7 @@ def test_create_shape_node_table(request):
         index= False
     )
 
-@pytest.mark.menow
+#@pytest.mark.menow
 @pytest.mark.travis
 def test_write_standard_transit(request):
     """
@@ -383,3 +383,89 @@ def test_write_standard_transit(request):
     transit_network.create_freq_table()
 
     transit_network.write_standard_transit()
+
+#@pytest.mark.menow
+@pytest.mark.travis
+def test_create_rail(request):
+    """
+    Tests that parameters are read
+    """
+    print("\n--Starting:", request.node.name)
+
+    transit_network = Transit.load_all_gtfs_feeds(
+        path = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
+        roadway_network= roadway_network,
+        parameters=parameters
+    )
+
+    RanchLogger.info("transit feed has {} routes, they are {}".format(transit_network.feed.routes.route_id.nunique(), transit_network.feed.routes.route_short_name.unique()))
+
+    transit_network.get_representative_trip_for_route()
+    RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
+
+    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
+    print(transit_network.roadway_network.links_df.info())
+    transit_network.create_shape_node_table()
+
+    transit_network.create_freq_table()
+
+    transit_network.write_standard_transit(
+        path = 'D:/github/Ranch/tests/scratch/test_rail'
+    )
+
+    print(unique_rail_links_gdf)
+    print(unique_rail_links_gdf.sort_values(by = ['from_stop_id', 'to_stop_id']))
+    print(len(unique_rail_links_gdf.groupby(['from_stop_id', 'to_stop_id']).count()))
+    print(unique_rail_nodes_gdf)
+    print(unique_rail_nodes_gdf.stop_id.nunique())
+    print(len(unique_rail_nodes_gdf.groupby(['shape_pt_lat', 'shape_pt_lon', 'stop_id']).count()))
+
+    print(transit_network.rail_stops)
+    print(transit_network.rail_trip_link_df)
+
+    print(roadway_network.links_df.info())
+    print(transit_network.roadway_network.links_df.info())
+
+@pytest.mark.menow
+@pytest.mark.travis
+def test_create_rail_and_bus(request):
+    """
+    Tests that parameters are read
+    """
+    print("\n--Starting:", request.node.name)
+
+    transit_network = Transit.load_all_gtfs_feeds(
+        path = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
+        roadway_network= roadway_network,
+        parameters=parameters
+    )
+
+    RanchLogger.info("transit feed has {} routes, they are {}".format(transit_network.feed.routes.route_id.nunique(), transit_network.feed.routes.route_short_name.unique()))
+
+    transit_network.get_representative_trip_for_route()
+    RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
+
+    transit_network.snap_stop_to_node()
+    
+    transit_network.route_bus_trip()
+
+    transit_network.update_bus_stop_node()
+
+    bus_trip_link_df = gpd.GeoDataFrame(
+        transit_network.bus_trip_link_df, 
+        crs = roadway_network.links_df.crs)
+
+    bus_trip_link_df.to_file(
+        os.path.join('D:/github/Ranch/tests/scratch/test_2019', 'test_routing.geojson'),
+        driver = 'GeoJSON'
+    )
+
+    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
+
+    transit_network.create_shape_node_table()
+
+    transit_network.create_freq_table()
+
+    transit_network.write_standard_transit(
+        path = 'D:/github/Ranch/tests/scratch/test_2019'
+    )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Dict, Optional, Union
+import multiprocessing
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,15 @@ from .roadway import Roadway
 from .utils import geodesic_point_buffer, ox_graph, find_closest_node
 from .sharedstreets import run_shst_match, read_shst_extraction
 
+TRANSIT_UNQIUE_SHAPE_ID = ['agency_raw_name', 'shape_id']
+
+def multiprocessing_shst_match(input_network_file):
+    run_shst_match(
+        input_network_file = input_network_file,
+        input_unqiue_id=TRANSIT_UNQIUE_SHAPE_ID,
+        custom_match_option = '--follow-line-direction --tile-hierarchy=8'
+    )
+    
 class Transit(object):
     """
     Representation of a Transit Network.
@@ -155,9 +165,11 @@ class Transit(object):
         self.snap_stop_to_node()
         self.route_bus_trip()
         self.update_bus_stop_node()
-        self.route_rail_trip()
+        unique_rail_links_gdf, unique_rail_nodes_gdf = self.route_rail_trip()
         self.create_shape_node_table()
         self.create_freq_table()
+
+        # TODO: append rail links and nodes to roadway standard
 
     def get_representative_feed_from_gtfs(feed_path: str):
         """
@@ -430,15 +442,19 @@ class Transit(object):
         ].copy()
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
-            self.roadway_network.nodes_df.shst_node_id.isin(
+            (self.roadway_network.nodes_df.shst_node_id.isin(
                 non_motorway_links_df.fromIntersectionId.tolist() + non_motorway_links_df.toIntersectionId.tolist()
-                )
+            ) & 
+            (self.roadway_network.nodes_df.drive_access == 1))
             ].copy()
 
         stop_df = self.feed.stops.copy()
         stop_df['geometry'] = [Point(xy) for xy in zip(stop_df['stop_lon'], stop_df['stop_lat'])]
-        stop_df = gpd.GeoDataFrame(stop_df)
-        stop_df.crs = {'init' : 'epsg:4326'}
+        stop_df = gpd.GeoDataFrame(
+            stop_df,
+            geometry = stop_df['geometry'],
+            crs = node_candidates_for_stops_df.crs
+        )
         
         stop_to_node_gdf = find_closest_node(
             stop_df, 
@@ -591,17 +607,19 @@ class Transit(object):
                 G_trip = ox_graph(nodes_gdf, links_gdf)
             
                 trip_stops_df.sort_values(by = ["stop_sequence"], inplace = True)
-            
+
                 # from first stop node OSM id
                 closest_node_to_first_stop = int(trip_stops_df.osm_node_id.iloc[0])
                     
                 # to last stop node OSM id
                 closest_node_to_last_stop = int(trip_stops_df.osm_node_id.iloc[-1])
                 
-                RanchLogger.info("Routing trip {} from stop {} to stop {}".format(
+                RanchLogger.info("Routing trip {} from stop {}, osm node {} to stop {} osm node {}".format(
                     trip_stops_df.trip_id.unique(),
                     trip_stops_df.stop_id.iloc[0],
+                    closest_node_to_first_stop,
                     trip_stops_df.stop_id.iloc[-1],
+                    closest_node_to_last_stop
                 ))
 
                 path_osm_link_df = Transit.get_link_path_between_nodes(
@@ -756,7 +774,7 @@ class Transit(object):
         stop_buffer_df = gpd.GeoDataFrame(
             stop_buffer_df, 
             geometry = stop_buffer_df["geometry"], 
-            crs = {'init' : 'epsg:4326'}
+            crs = drive_link_df.crs
         )
         
         stop_buffer_link_df = gpd.sjoin(
@@ -1021,7 +1039,9 @@ class Transit(object):
 
         trip_osm_link_df = pd.merge(
             trip_osm_link_df,
-            self.roadway_network.links_df[["u", "v", "wayId", "shstReferenceId", "shstGeometryId", 'geometry']].drop_duplicates(subset = ["u", "v"]),
+            self.roadway_network.links_df[
+                ["u", "v", 'fromIntersectionId', 'toIntersectionId', "wayId", "shstReferenceId", "shstGeometryId", 'geometry']
+            ].drop_duplicates(subset = ["u", "v"]),
             how = "left",
             on = ["u", "v"]
         )
@@ -1112,8 +1132,25 @@ class Transit(object):
         3. read the match result
         """
         
+        # exclude rail shapes
+        if 'route_type' in self.feed.trips.columns:
+            bus_trips_df = self.feed.trips[self.feed.trips.route_type == 3].copy()
+        else:
+            trips_df = pd.merge(
+                self.feed.trips,
+                self.feed.routes,
+                how = 'left',
+                on = ['agency_raw_name', 'route_id']
+            )
+            bus_trips_df = trips_df[trips_df.route_type == 3].copy()
+        
         shapes_df = self.feed.shapes.copy()
-        shapes_df = shapes_df[shapes_df.shape_id.isin(self.feed.trips.shape_id.unique())]
+        shapes_df = pd.merge(
+            shapes_df,
+            bus_trips_df[['agency_raw_name', 'shape_id']].drop_duplicates(),
+            how = 'inner',
+            on = ['agency_raw_name', 'shape_id']
+        )
         
         shapes_df = gpd.GeoDataFrame(
             shapes_df, 
@@ -1128,18 +1165,37 @@ class Transit(object):
             lines_from_shapes_df, 
             geometry = 'geometry'
             )
-    
-        lines_from_shapes_df.to_file(
-            os.path.join(path, "lines_from_shapes.geojson"), 
-            driver='GeoJSON')
         
+        match_input_file_list = []
+        for index, row in lines_from_shapes_df.iterrows():
+            agency_raw_name = row['agency_raw_name']
+            shape_id = row['shape_id']
+            row = row.to_frame().T
+            row_gdf = gpd.GeoDataFrame(
+                row, 
+                geometry = row['geometry'],
+                crs = self.parameters.standard_crs
+            )
+            row_gdf.to_file(
+                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name, shape_id)),
+                driver='GeoJSON'
+            )
+
+            match_input_file_list.append(
+                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name, shape_id))
+            )
+        
+        match_pool = multiprocessing.Pool(multiprocessing.cpu_count() - 1)
+
+        match_pool.map(multiprocessing_shst_match, match_input_file_list)
+        """
         run_shst_match(
             input_network_file = os.path.join(path, "lines_from_shapes.geojson"),
             input_unqiue_id=['agency_raw_name', 'shape_id'],
             output_dir = path,
             custom_match_option = '--follow-line-direction --tile-hierarchy=8'
         )
-
+        """
         trip_shst_link_df = read_shst_extraction(path, "*.matched.geojson")
 
         trip_shst_link_df.rename(
@@ -1248,7 +1304,7 @@ class Transit(object):
 
         stop_df['geometry'] = [Point(xy) for xy in zip(stop_df['stop_lon'], stop_df['stop_lat'])]
         stop_df = gpd.GeoDataFrame(stop_df)
-        stop_df.crs = {'init' : 'epsg:4326'}
+        stop_df.crs = self.parameters.standard_crs
 
         ## append stop info to stop times table
         stop_time_df = pd.merge(
@@ -1312,60 +1368,7 @@ class Transit(object):
                     sort = False,
                     ignore_index = True
                 )
-        """
-        ## for each stop, get which trips are using them
-        stop_trip_df = stop_time_df.groupby(
-            ['agency_raw_name', 'stop_id']
-            )['trip_id'].unique().to_frame().reset_index()
-
-        stop_to_node_df = pd.DataFrame()
-
-        # then get the common nodes on those trips / shapes
-        # comments: common nodes are rare, as the routing is not perfect
-        # will make stop nodes unique to trips, duplicate the stop record when necessary
-        for index, row in stop_trip_df.iterrows():
-            agency = row.agency_raw_name
-            stop_id = row.stop_id
-            node_list = []
-
-            for trip_id in row.trip_id:
-                related_bus_trip_link_df = self.bus_trip_link_df[
-                    (self.bus_trip_link_df.agency_raw_name == agency) & 
-                    (self.bus_trip_link_df.trip_id == trip_id)
-                ].copy()
-                if len(related_bus_trip_link_df) > 0:
-                    node_list.append(list(set(
-                        related_bus_trip_link_df.u.tolist() + 
-                        related_bus_trip_link_df.v.tolist()
-                    )))
-
-            common_node_list = list(set.intersection(*map(set, node_list)))
-
-            common_node_df = self.roadway_network.nodes_df[
-                (self.roadway_network.nodes_df.osm_node_id.isin(
-                    common_node_list
-                ))
-            ].copy()
-
-            single_stop_df = stop_df[
-                (stop_df.agency_raw_name == agency) &
-                (stop_df.stop_id == stop_id)
-            ].copy()
-
-            print(common_node_df)
-            # then match stops to close nodes
-            single_stop_df = find_closest_node(
-                single_stop_df, 
-                common_node_df,
-                unique_id = ['agency_raw_name', 'stop_id']
-            )
         
-            stop_to_node_df = stop_to_node_df.append(
-                single_stop_df,
-                sort = False,
-                ignore_index = True
-            )
-        """
         stop_to_node_df.drop(['X','Y'], axis = 1, inplace = True)
 
         if 'osm_node_id' in stop_df.columns:
@@ -1374,20 +1377,222 @@ class Transit(object):
         stop_df = pd.merge(
             stop_df,
             stop_to_node_df, 
-            how = 'left',
+            how = 'inner',
             on = ['agency_raw_name', 'stop_id']
         )
 
         column_list = self.feed.stops.columns.values.tolist() + ['trip_id']
         self.bus_stops = stop_df[column_list]
     
-    #TODO rail codes from notebooks to ranch
     def route_rail_trip(
         self
     ):
         """
+        method that creates rail routes
+
+        1. get rail routes
+        2. for each rail shape, get stops
+        3. create shape line string between stops
         """
-        None
+
+        # get route type for trips, get rail trips
+        trip_df = pd.merge(
+            self.feed.trips, 
+            self.feed.routes, 
+            how = 'left', 
+            on = ['agency_raw_name', 'route_id']
+        )
+        rail_trip_df = trip_df[trip_df['route_type'] != 3].copy()
+
+        rail_trip_df['agency_shape_id'] = rail_trip_df['agency_raw_name'] + "_" + rail_trip_df['shape_id'].astype(str)
+
+        RanchLogger.info("representative trips include {} rail/ferry shapes, which are total of {} trips".format(
+            rail_trip_df.agency_shape_id.nunique(),
+            len(rail_trip_df)
+        ))
+
+        # get rail shapes
+        rail_shape_df = self.feed.shapes.copy()
+        rail_shape_df['agency_shape_id'] = rail_shape_df['agency_raw_name'] + "_" + rail_shape_df['shape_id'].astype(str)
+        rail_shape_df = rail_shape_df[
+            rail_shape_df.agency_shape_id.isin(
+                rail_trip_df.agency_shape_id.tolist()
+            )
+        ]
+
+        # get rail stop times
+        rail_stop_times_df = pd.merge(
+            self.feed.stop_times,
+            rail_trip_df[['agency_raw_name', 'trip_id', 'shape_id', 'agency_shape_id']],
+            how = 'inner',
+            on = ['agency_raw_name', 'trip_id']
+        )
+
+        rail_stop_times_df = pd.merge(
+            rail_stop_times_df,
+            self.feed.stops[['agency_raw_name', 'stop_id', 'stop_lat', 'stop_lon']],
+            how = 'left',
+            on = ['agency_raw_name', 'stop_id']
+        )
+
+        # get agency-shape-stop correspondence
+        rail_stop_times_df = rail_stop_times_df.drop_duplicates(
+            subset = ['agency_raw_name', 'shape_id', 'stop_id']
+        )
+
+        rail_shape_stop_df = pd.DataFrame()
+
+        # for each rail shape
+        for agency_shape_id in rail_shape_df.agency_shape_id.unique():
+            # find the closest shape node for each stop
+            shape_df = rail_shape_df[
+                rail_shape_df.agency_shape_id == agency_shape_id
+            ].copy()
+            # initialize columns
+            shape_df['is_stop'] = np.int(0)
+            shape_df['stop_id'] = np.nan
+
+            shape_inventory = shape_df[['shape_pt_lon', 'shape_pt_lat']].values
+            tree = cKDTree(shape_inventory)
+
+            # stops on the shape
+            stop_df = rail_stop_times_df[
+                rail_stop_times_df.agency_shape_id == agency_shape_id
+            ].copy()
+            for s in range(len(stop_df)):
+                point = stop_df.iloc[s][['stop_lon', 'stop_lat']].values
+                dd, ii = tree.query(point, k = 1)
+                shape_df.shape_pt_lon.iloc[ii] = stop_df.iloc[s]['stop_lon']
+                shape_df.shape_pt_lat.iloc[ii] = stop_df.iloc[s]['stop_lat']
+                shape_df.is_stop.iloc[ii] = 1
+                shape_df.stop_id.iloc[ii] = stop_df.iloc[s]['stop_id']
+
+            rail_shape_stop_df = rail_shape_stop_df.append(
+                shape_df,
+                ignore_index = True,
+                sort = False
+            )
+        
+        rail_trip_link_df = pd.DataFrame()
+        # create new rail links
+        for agency_shape_id in rail_shape_stop_df.agency_shape_id.unique():
+            shape_df = rail_shape_stop_df[
+                rail_shape_stop_df.agency_shape_id == agency_shape_id
+            ].copy()
+
+            agency_raw_name = rail_shape_stop_df[
+                rail_shape_stop_df.agency_shape_id == agency_shape_id
+            ]['agency_raw_name'].iloc[0]
+
+            shape_id = rail_shape_stop_df[
+                rail_shape_stop_df.agency_shape_id == agency_shape_id
+            ]['shape_id'].iloc[0]
+
+            # get rail nodes based on the stop flags
+            break_list = shape_df.index[
+                shape_df.is_stop == 1
+            ].tolist()
+            
+            stop_id_list = shape_df[
+                shape_df.is_stop == 1
+            ]['stop_id'].tolist()
+            
+
+            # use the gtfs shape between "stop" shapes to build the rail true shape
+            for j in range(len(break_list)-1):
+                lon_list = rail_shape_stop_df.shape_pt_lon.iloc[break_list[j]:break_list[j+1]+1].tolist()
+                lat_list = rail_shape_stop_df.shape_pt_lat.iloc[break_list[j]:break_list[j+1]+1].tolist()
+                linestring = LineString([Point(xy) for xy in zip(lon_list,lat_list)])
+                rail_trip_link_df = rail_trip_link_df.append(
+                    {
+                        'agency_raw_name' : agency_raw_name,
+                        'shape_id' : shape_id,
+                        'from_stop_id' : stop_id_list[j], 
+                        'to_stop_id' : stop_id_list[j+1],
+                        'geometry' : linestring
+                    }, 
+                    ignore_index = True, 
+                    sort = False
+                )
+
+        # drop duplicate rail links
+        unique_rail_links_df = rail_trip_link_df.drop_duplicates(
+            subset = ['agency_raw_name', 'from_stop_id', 'to_stop_id']
+        )
+
+        # rail links geodataframe
+        unique_rail_links_gdf = gpd.GeoDataFrame(
+            unique_rail_links_df,
+            geometry = unique_rail_links_df['geometry'],
+            crs = self.roadway_network.links_df.crs
+        )
+
+        # create new rail nodes
+        rail_nodes_df = rail_shape_stop_df[
+            rail_shape_stop_df.is_stop == 1
+        ][['stop_id', 'agency_raw_name', 'shape_pt_lon', 'shape_pt_lat']].copy()
+
+        # create node shst id for rail nodes, use 'agency_raw_name'+'stop_id'
+        rail_nodes_df['shst_node_id'] = rail_nodes_df['agency_raw_name'] + '_' + rail_nodes_df['stop_id'].astype(str)
+
+        # drop duplicate rail nodes
+        unique_rail_nodes_df = rail_nodes_df.drop_duplicates(
+            subset = ['agency_raw_name', 'stop_id']
+        )
+
+        # rail nodes geodataframe
+        unique_rail_nodes_gdf = gpd.GeoDataFrame(
+            unique_rail_nodes_df,
+            geometry = [Point(xy) for xy in zip(unique_rail_nodes_df.shape_pt_lon, unique_rail_nodes_df.shape_pt_lat)],
+            crs = self.roadway_network.links_df.crs
+        )
+        
+        rail_stops = pd.merge(
+            self.feed.stops.drop('shst_node_id', axis = 1),
+            unique_rail_nodes_df[['agency_raw_name', 'stop_id', 'shst_node_id']],
+            how = 'inner',
+            on = ['agency_raw_name', 'stop_id']
+        )
+
+        # assign u and v to rail_trip_link_df
+        rail_trip_link_df = pd.merge(
+            rail_trip_link_df,
+            unique_rail_nodes_df[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
+                columns = {'stop_id' : 'from_stop_id', 'shst_node_id' : 'fromIntersectionId'}
+            ),
+            how = 'left',
+            on = ['agency_raw_name', 'from_stop_id']
+        )
+
+        rail_trip_link_df = pd.merge(
+            rail_trip_link_df,
+            unique_rail_nodes_df[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
+                columns = {'stop_id' : 'to_stop_id', 'shst_node_id' : 'toIntersectionId'}
+            ),
+            how = 'left',
+            on = ['agency_raw_name', 'to_stop_id']
+        )
+
+        # TODO assign county to unique rail links and nodes before appending them to the roadway network
+
+        # TODO assign model id to rail links and nodes
+
+        self.rail_trip_link_df = rail_trip_link_df
+        self.rail_stops = rail_stops
+
+        self.roadway_network.links_df = self.roadway_network.links_df.append(
+            unique_rail_links_gdf,
+            sort = False,
+            ignore_index = True
+        )
+
+        self.roadway_network.nodes_df = self.roadway_network.nodes_df.append(
+            unique_rail_nodes_gdf,
+            sort = False,
+            ignore_index = True
+        )
+
+        return unique_rail_links_gdf, unique_rail_nodes_gdf
 
     def create_freq_table(
         self
@@ -1427,20 +1632,25 @@ class Transit(object):
         """
         create complete node lists each transit traverses to replace the gtfs shape.txt
         """
-        bus_trip_link_df = self.bus_trip_link_df.copy()
-        bus_trip_link_with_unique_shape_id = bus_trip_link_df.drop_duplicates(
-            subset = ["shape_id"]
-        ).trip_id.tolist()
-        
-        bus_trip_link_df = bus_trip_link_df[
-            bus_trip_link_df.trip_id.isin(bus_trip_link_with_unique_shape_id)
-        ].copy()
+        if self.bus_trip_link_df is not None:
+            bus_trip_link_df = self.bus_trip_link_df.copy()
+            bus_trip_link_with_unique_shape_id = bus_trip_link_df.drop_duplicates(
+                subset = ["shape_id"]
+            ).trip_id.tolist()
+            
+            bus_trip_link_df = bus_trip_link_df[
+                bus_trip_link_df.trip_id.isin(bus_trip_link_with_unique_shape_id)
+            ].copy()
+        else:
+            bus_trip_link_df = pd.DataFrame(
+                columns = ['u', 'v', 'fromIntersectionId', 'toIntersectionId','shape_id', 'agency_raw_name']
+            )
         
         if self.rail_trip_link_df is not None:
             shape_link_df = pd.concat(
                 [   
-                    bus_trip_link_df[["u", "v", 'shape_id']],
-                    self.rail_trip_link_df[['u', 'v', 'shape_id']]
+                    bus_trip_link_df[['u', 'v', 'fromIntersectionId', 'toIntersectionId','shape_id', 'agency_raw_name']],
+                    self.rail_trip_link_df[['fromIntersectionId', 'toIntersectionId','shape_id', 'agency_raw_name']]
                 ],
                 sort = False,
                 ignore_index = True)
@@ -1457,8 +1667,10 @@ class Transit(object):
             shape_df = shape_link_df[shape_link_df.shape_id == shape_id]
             point_df = pd.DataFrame(
                 data = {
+                    "agency_raw_name" : shape_df['agency_raw_name'].iloc[0],
                     "shape_id" : shape_id,
                     "shape_osm_node_id" : shape_df.u.tolist() + [shape_df.v.iloc[-1]],
+                    "shape_shst_node_id" : shape_df.fromIntersectionId.tolist() + [shape_df.toIntersectionId.iloc[-1]],
                     #"shape_model_node_id" : shape_df.A.tolist() + [shape_df.B.iloc[-1]],
                     "shape_pt_sequence" : range(1, 1+len(shape_df)+1)}
             )
@@ -1472,10 +1684,10 @@ class Transit(object):
             shape_point_df,
             self.roadway_network.nodes_df[["osm_node_id", "shst_node_id", "geometry"]],
             how = "left",
-            left_on = "shape_osm_node_id",
-            right_on = "osm_node_id")
+            left_on = "shape_shst_node_id",
+            right_on = "shst_node_id")
         
-        shape_point_df.crs = {'init' : 'epsg:4326'}
+        shape_point_df.crs = self.parameters.standard_crs
         #shape_point_df = shape_point_df.to_crs(epsg = 4326)
         
         RanchLogger.info(shape_point_df[shape_point_df.geometry.isnull()])
@@ -1483,9 +1695,9 @@ class Transit(object):
         shape_point_df["shape_pt_lat"] = shape_point_df.geometry.map(lambda g:g.y)
         shape_point_df["shape_pt_lon"] = shape_point_df.geometry.map(lambda g:g.x)
         
-        shape_point_df["shape_id"] = shape_point_df["shape_id"].astype(int)
+        #shape_point_df["shape_id"] = shape_point_df["shape_id"].astype(int)
         
-        shape_point_df.rename(columns = {"shst_node_id":"shape_shst_node_id"}, inplace = True)
+        #shape_point_df.rename(columns = {"shst_node_id":"shape_shst_node_id"}, inplace = True)
             
         self.shape_point_df = shape_point_df
 
@@ -1506,8 +1718,6 @@ class Transit(object):
         shape_point_df = self.shape_point_df.copy()
         trip_df = self.feed.trips.copy()
         
-        trip_df["shape_id"] = trip_df["shape_id"].astype(int)
-        
         trip_df = trip_df[
             trip_df.shape_id.isin(shape_point_df.shape_id.unique().tolist())
         ]
@@ -1519,7 +1729,7 @@ class Transit(object):
             how = 'inner',
             on = ['agency_raw_name', 'trip_id']
         )
-        
+
         if self.rail_stops is None:
             stop_df = self.bus_stops.copy()
         else:
@@ -1552,22 +1762,22 @@ class Transit(object):
         # add model node id to stops
         stop_df = pd.merge(
             stop_df,
-            self.roadway_network.nodes_df[['osm_node_id', 'model_node_id']],
+            self.roadway_network.nodes_df[['shst_node_id', 'model_node_id']],
             how = 'left',
-            on = 'osm_node_id'
+            on = 'shst_node_id'
         )
 
         # add model node id to shapes
         shape_point_df = pd.merge(
             shape_point_df,
-            self.roadway_network.nodes_df[['osm_node_id', 'model_node_id']].rename(
+            self.roadway_network.nodes_df[['shst_node_id', 'model_node_id']].rename(
                 columns = {
-                    'osm_node_id' : 'shape_osm_node_id', 
+                    'shst_node_id' : 'shape_shst_node_id', 
                     'model_node_id' : 'shape_model_node_id'
                 }
             ),
             how = 'left',
-            on = 'shape_osm_node_id'
+            on = 'shape_shst_node_id'
         )
 
         route_df = self.feed.routes.copy()
