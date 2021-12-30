@@ -9,7 +9,9 @@ import pandas as pd
 from pandas import DataFrame
 from pyproj import CRS
 import docker
-import glob 
+import glob
+
+from .parameters import standard_crs
 
 __all__ = ["run_shst_extraction"]
 
@@ -47,7 +49,7 @@ def run_shst_extraction(
             raise ValueError(msg)
 
     # convert to lat-long
-    polygon_gdf = polygon_gdf.to_crs(CRS("EPSG:4269"))
+    polygon_gdf = polygon_gdf.to_crs(standard_crs)
 
     # export polygon to geojson for shst node js
     for i in range(len(polygon_gdf.geometry)):
@@ -98,7 +100,7 @@ def _run_shst_extraction(
 
 def run_shst_match(
     input_network_file: str,
-    output_dir: str,
+    output_dir: Optional[str] = None,
     input_crs: Optional[CRS] = None,
     input_unqiue_id: Optional[list] = None,
     custom_match_option: Optional[str] = None,
@@ -118,9 +120,11 @@ def run_shst_match(
         raise ValueError(msg)
 
     if not output_dir:
-        msg = "Please specify output filename for match result."
-        RanchLogger.error(msg)
-        raise ValueError(msg)
+        msg = "No output directory specified for match result, will write out to the input network directory."
+        RanchLogger.warning(msg)
+        output_dir = os.path.dirname(input_network_file)
+    else:
+        output_dir = output_dir
 
     if input_network_file:
         filename, file_extension = os.path.splitext(input_network_file)
@@ -138,7 +142,7 @@ def run_shst_match(
         network_gdf.crs = input_crs
 
     # convert to lat-long
-    network_gdf = network_gdf.to_crs(CRS("EPSG:4269"))
+    network_gdf = network_gdf.to_crs(standard_crs)
     
     # check if input network has unique IDs
     if input_unqiue_id:
