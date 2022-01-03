@@ -3,14 +3,15 @@
 
 # Utility functions for logging
 
-import sys
 import logging
+import sys
 
 __all__ = ["RanchLogger", "setupLogging"]
 
 
 # for all the Wrangler logging needs!
 RanchLogger = logging.getLogger("RanchLogger")
+
 
 def setupLogging(
     level: int = None, log_filename: str = None, log_to_console: bool = False
@@ -22,7 +23,7 @@ def setupLogging(
         level: the level of logging that will be recorded
         log_filename: the location of the log file that will get created to add the DEBUG log
         log_to_console: if True, logging will go to the console at INFO level
-        """
+    """
 
     if level is None:
         RanchLogger.setLevel(logging.DEBUG)

@@ -1,23 +1,20 @@
-from .logger import RanchLogger
-
+import json
 import os
 
 import geopandas as gpd
-import json
 import networkx as nx
-import pandas as pd
 import osmnx as ox
+import pandas as pd
 from pyproj import CRS
 
-from .utils import link_df_to_geojson, point_df_to_geojson
+from .logger import RanchLogger
 from .parameters import standard_crs
+from .utils import link_df_to_geojson, point_df_to_geojson
 
 __all__ = ["run_osmnx_extraction"]
 
-def run_osmnx_extraction(
-    input_polygon_file: str,
-    output_dir: str
-):
+
+def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
 
     """
     run osmnx extraction with input polygon
@@ -41,7 +38,7 @@ def run_osmnx_extraction(
         filename, file_extension = os.path.splitext(input_polygon_file)
         if file_extension in [".shp", ".geojson"]:
             polygon_gdf = gpd.read_file(input_polygon_file)
-        
+
         else:
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
@@ -53,102 +50,119 @@ def run_osmnx_extraction(
     boundary = polygon_gdf.geometry.unary_union
 
     # OSM extraction
-    G_drive = ox.graph_from_polygon(boundary, network_type='all', simplify=False)
+    G_drive = ox.graph_from_polygon(boundary, network_type="all", simplify=False)
 
-    link_gdf = ox.graph_to_gdfs(G_drive, nodes = False, edges = True)
-    node_gdf = ox.graph_to_gdfs(G_drive, nodes = True, edges = False)
+    link_gdf = ox.graph_to_gdfs(G_drive, nodes=False, edges=True)
+    node_gdf = ox.graph_to_gdfs(G_drive, nodes=True, edges=False)
 
     # write out osm extraction
-    link_prop = link_gdf.drop("geometry", axis = 1).columns.tolist()
+    link_prop = link_gdf.drop("geometry", axis=1).columns.tolist()
     link_geojson = link_df_to_geojson(link_gdf, link_prop)
 
     with open(os.path.join(output_dir, "link.geojson"), "w") as f:
         json.dump(link_geojson, f)
 
-    node_prop = node_gdf.drop("geometry", axis = 1).columns.tolist()
+    node_prop = node_gdf.drop("geometry", axis=1).columns.tolist()
     node_geojson = point_df_to_geojson(node_gdf, node_prop)
 
     with open(os.path.join(output_dir, "node.geojson"), "w") as f:
         json.dump(node_geojson, f)
 
+
 def add_two_way_osm(link_gdf, osmnx_link):
     """
     for osm with oneway = False, add the reverse direction to complete
-    
+
     Parameters
     ------------
     osm link from shst extraction, plus shst info
-    
+
     return
     ------------
     complete osm link
     """
     osm_link_gdf = link_gdf.copy()
     osm_link_gdf["wayId"] = osm_link_gdf["wayId"].astype(int)
-    osm_link_gdf.drop("name", axis = 1, inplace = True)
-    
+    osm_link_gdf.drop("name", axis=1, inplace=True)
+
     osmnx_link_gdf = osmnx_link.copy()
 
-    osmnx_link_gdf.drop_duplicates(subset = ["osmid"], inplace = True)
-    osmnx_link_gdf.drop(["length", "u", "v", "geometry"], axis = 1, inplace = True)
-    
-    RanchLogger.info("shst extraction has {} geometries".format(osm_link_gdf.id.nunique()))
+    osmnx_link_gdf.drop_duplicates(subset=["osmid"], inplace=True)
+    osmnx_link_gdf.drop(["length", "u", "v", "geometry"], axis=1, inplace=True)
+
+    RanchLogger.info(
+        "shst extraction has {} geometries".format(osm_link_gdf.id.nunique())
+    )
     RanchLogger.info("shst extraction has {} osm links".format(osm_link_gdf.shape[0]))
-    
+
     osm_link_gdf["u"] = osm_link_gdf.nodeIds.apply(lambda x: int(x[0]))
     osm_link_gdf["v"] = osm_link_gdf.nodeIds.apply(lambda x: int(x[-1]))
-    
+
     RanchLogger.info("---joining osm shst with osmnx data---")
-    osm_link_gdf = pd.merge(osm_link_gdf,
-                            osmnx_link_gdf,
-                            left_on = ["wayId"],
-                            right_on = ["osmid"],
-                            how = "left")
-    
-    reverse_osm_link_gdf = osm_link_gdf[(osm_link_gdf.oneWay == False) & 
-                                        (osm_link_gdf.forwardReferenceId != osm_link_gdf.backReferenceId) & 
-                                        (osm_link_gdf.u != osm_link_gdf.v)].copy()
-    
-    RanchLogger.info("shst extraction has {} two-way osm links".format(reverse_osm_link_gdf.shape[0]))
-    RanchLogger.info("and they are {} geometrys".format(reverse_osm_link_gdf.id.nunique()))
-    
-    reverse_osm_link_gdf.rename(columns = {"u" : "v",
-                                          "v" : "u",
-                                          "forwardReferenceId" : "backReferenceId",
-                                          "backReferenceId" : "forwardReferenceId",
-                                          "fromIntersectionId" : "toIntersectionId",
-                                          "toIntersectionId" : "fromIntersectionId"},
-                               inplace = True)
-    
+    osm_link_gdf = pd.merge(
+        osm_link_gdf, osmnx_link_gdf, left_on=["wayId"], right_on=["osmid"], how="left"
+    )
+
+    reverse_osm_link_gdf = osm_link_gdf[
+        (osm_link_gdf.oneWay == False)
+        & (osm_link_gdf.forwardReferenceId != osm_link_gdf.backReferenceId)
+        & (osm_link_gdf.u != osm_link_gdf.v)
+    ].copy()
+
+    RanchLogger.info(
+        "shst extraction has {} two-way osm links".format(reverse_osm_link_gdf.shape[0])
+    )
+    RanchLogger.info(
+        "and they are {} geometrys".format(reverse_osm_link_gdf.id.nunique())
+    )
+
+    reverse_osm_link_gdf.rename(
+        columns={
+            "u": "v",
+            "v": "u",
+            "forwardReferenceId": "backReferenceId",
+            "backReferenceId": "forwardReferenceId",
+            "fromIntersectionId": "toIntersectionId",
+            "toIntersectionId": "fromIntersectionId",
+        },
+        inplace=True,
+    )
+
     reverse_osm_link_gdf["reverse_out"] = 1
-    
-    osm_link_gdf = pd.concat([osm_link_gdf, reverse_osm_link_gdf],
-                            sort = False,
-                            ignore_index = True)
-    
-    osm_link_gdf.rename(columns = {"forwardReferenceId" : "shstReferenceId",
-                                 "geometryId" : "shstGeometryId"},
-                      inplace = True)
-    
-    osm_link_gdf.drop("backReferenceId",
-                     axis = 1,
-                     inplace = True)
-    
-    RanchLogger.info("after join, ther are {} osm links from shst extraction, \
+
+    osm_link_gdf = pd.concat(
+        [osm_link_gdf, reverse_osm_link_gdf], sort=False, ignore_index=True
+    )
+
+    osm_link_gdf.rename(
+        columns={
+            "forwardReferenceId": "shstReferenceId",
+            "geometryId": "shstGeometryId",
+        },
+        inplace=True,
+    )
+
+    osm_link_gdf.drop("backReferenceId", axis=1, inplace=True)
+
+    RanchLogger.info(
+        "after join, ther are {} osm links from shst extraction, \
     out of which there are {} links that do not have osm info, \
     due to shst extraction (default tile 181224) contains {} osm ids that are not included in latest OSM extraction, \
     e.g. private streets, closed streets.".format(
-        len(osm_link_gdf), 
-        len(osm_link_gdf[osm_link_gdf.osmid.isnull()]), 
-        osm_link_gdf[osm_link_gdf.osmid.isnull()].wayId.nunique()
+            len(osm_link_gdf),
+            len(osm_link_gdf[osm_link_gdf.osmid.isnull()]),
+            osm_link_gdf[osm_link_gdf.osmid.isnull()].wayId.nunique(),
         )
     )
 
-    RanchLogger.info("after join, there are {} shst referencies".format(
-        osm_link_gdf.groupby(["shstReferenceId", "shstGeometryId"]).count().shape[0])
+    RanchLogger.info(
+        "after join, there are {} shst referencies".format(
+            osm_link_gdf.groupby(["shstReferenceId", "shstGeometryId"]).count().shape[0]
+        )
     )
-    
+
     return osm_link_gdf
+
 
 def highway_attribute_list_to_value(x, highway_to_roadway_dict, roadway_hierarchy_dict):
     """

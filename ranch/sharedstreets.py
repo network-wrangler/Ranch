@@ -1,24 +1,21 @@
-from .logger import RanchLogger
-
+import glob
+import os
 from typing import Optional
 
-import os
+import docker
 import geopandas as gpd
-from geopandas import GeoDataFrame
 import pandas as pd
+from geopandas import GeoDataFrame
 from pandas import DataFrame
 from pyproj import CRS
-import docker
-import glob
 
+from .logger import RanchLogger
 from .parameters import standard_crs
 
 __all__ = ["run_shst_extraction"]
 
-def run_shst_extraction(
-    input_polygon_file: str,
-    output_dir: str
-):
+
+def run_shst_extraction(input_polygon_file: str, output_dir: str):
 
     """
     run sharedstreet extraction with input polygon
@@ -42,7 +39,7 @@ def run_shst_extraction(
         filename, file_extension = os.path.splitext(input_polygon_file)
         if file_extension in [".shp", ".geojson"]:
             polygon_gdf = gpd.read_file(input_polygon_file)
-        
+
         else:
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
@@ -53,22 +50,28 @@ def run_shst_extraction(
 
     # export polygon to geojson for shst node js
     for i in range(len(polygon_gdf.geometry)):
-    
-        RanchLogger.info("Exporting boundry file {}".format(os.path.join(output_dir, "boundary."+str(i)+".geojson")))
-    
-        boundary_gdf = gpd.GeoDataFrame({"geometry" : gpd.GeoSeries(polygon_gdf.geometry.iloc[i])})
+
+        RanchLogger.info(
+            "Exporting boundry file {}".format(
+                os.path.join(output_dir, "boundary." + str(i) + ".geojson")
+            )
+        )
+
+        boundary_gdf = gpd.GeoDataFrame(
+            {"geometry": gpd.GeoSeries(polygon_gdf.geometry.iloc[i])}
+        )
 
         boundary_gdf.to_file(
-            os.path.join(output_dir, "boundary."+str(i)+".geojson"),
-            driver = "GeoJSON"
+            os.path.join(output_dir, "boundary." + str(i) + ".geojson"),
+            driver="GeoJSON",
         )
 
-        RanchLogger.info('extracting for polygon {}'.format(i))
+        RanchLogger.info("extracting for polygon {}".format(i))
 
         _run_shst_extraction(
-            input_file_name = "boundary."+str(i),
-            output_dir = output_dir
+            input_file_name="boundary." + str(i), output_dir=output_dir
         )
+
 
 def _run_shst_extraction(
     input_file_name: str,
@@ -82,21 +85,27 @@ def _run_shst_extraction(
     client = docker.from_env()
 
     container = client.containers.run(
-        image='shst:latest', 
+        image="shst:latest",
         detach=True,
-        volumes={output_dir:{'bind':'/usr/node','mode':'rw'}}, 
+        volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
-        auto_remove=True, 
-        command='/bin/bash'
+        auto_remove=True,
+        command="/bin/bash",
     )
 
     container.exec_run(
         cmd=(
-            'shst extract usr/node/'+input_file_name+'.geojson --out=usr/node/'+'extract.'+input_file_name+'.geojson --metadata --tile-hierarchy=8 --tiles'
+            "shst extract usr/node/"
+            + input_file_name
+            + ".geojson --out=usr/node/"
+            + "extract."
+            + input_file_name
+            + ".geojson --metadata --tile-hierarchy=8 --tiles"
         )
     )
 
     container.stop()
+
 
 def run_shst_match(
     input_network_file: str,
@@ -130,8 +139,12 @@ def run_shst_match(
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
-            RanchLogger.info("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
-        
+            RanchLogger.info(
+                "input network {} has crs : {}".format(
+                    input_network_file, network_gdf.crs
+                )
+            )
+
         else:
             msg = "Invalid network file, should be .shp or .geojson"
             RanchLogger.error(msg)
@@ -143,52 +156,64 @@ def run_shst_match(
 
     # convert to lat-long
     network_gdf = network_gdf.to_crs(standard_crs)
-    
+
     # check if input network has unique IDs
     if input_unqiue_id:
         filename = input_network_file
-        filename = os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
-        
+        filename = (
+            os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
+        )
+
     # if not, create unique IDs
     else:
-        RanchLogger.info('Input network for shst match does not have unique IDs, generating unique IDs')
-        network_gdf["unique_id"] = range(1, 1+len(network_gdf))
+        RanchLogger.info(
+            "Input network for shst match does not have unique IDs, generating unique IDs"
+        )
+        network_gdf["unique_id"] = range(1, 1 + len(network_gdf))
 
         RanchLogger.info(
-            ('Generated {} unique IDs for {} links in the input network').format(
-                network_gdf['unique_id'].nunique(),
-                len(network_gdf)
+            ("Generated {} unique IDs for {} links in the input network").format(
+                network_gdf["unique_id"].nunique(), len(network_gdf)
             )
         )
 
         # export network to geojson for shst node js
 
-        filename = os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
-
-        RanchLogger.info("Exporting shst match input - ID-ed geometry file {}".format(os.path.join(output_dir, filename+".geojson")))
-    
-        network_gdf[["unique_id", "geometry"]].to_file(
-            os.path.join(output_dir, filename+".geojson"),
-            driver = "GeoJSON"
+        filename = (
+            os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
         )
 
-        RanchLogger.info("Exporting ID-ed network file {}".format(os.path.join(output_dir, filename+".full.geojson")))
-    
+        RanchLogger.info(
+            "Exporting shst match input - ID-ed geometry file {}".format(
+                os.path.join(output_dir, filename + ".geojson")
+            )
+        )
+
+        network_gdf[["unique_id", "geometry"]].to_file(
+            os.path.join(output_dir, filename + ".geojson"), driver="GeoJSON"
+        )
+
+        RanchLogger.info(
+            "Exporting ID-ed network file {}".format(
+                os.path.join(output_dir, filename + ".full.geojson")
+            )
+        )
+
         network_gdf.to_file(
-            os.path.join(output_dir, filename+".full.geojson"),
-            driver = 'GeoJSON'
+            os.path.join(output_dir, filename + ".full.geojson"), driver="GeoJSON"
         )
 
     if custom_match_option:
         match_option = custom_match_option
     else:
-        match_option = '--follow-line-direction --tile-hierarchy=8'
+        match_option = "--follow-line-direction --tile-hierarchy=8"
 
     _run_shst_match(
-        input_file_name = filename,
-        output_dir = output_dir,
-        match_option = match_option,
+        input_file_name=filename,
+        output_dir=output_dir,
+        match_option=match_option,
     )
+
 
 def _run_shst_match(
     input_file_name: str,
@@ -203,44 +228,48 @@ def _run_shst_match(
     client = docker.from_env()
 
     container = client.containers.run(
-        image='shst:latest', 
+        image="shst:latest",
         detach=True,
-        volumes={output_dir:{'bind':'/usr/node','mode':'rw'}}, 
+        volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
-        auto_remove=True, 
-        command='/bin/bash'
+        auto_remove=True,
+        command="/bin/bash",
     )
 
     container.exec_run(
         cmd=(
-            'shst match usr/node/'+input_file_name+'.geojson --out=usr/node/'+'match.'+input_file_name+'.geojson '+match_option
+            "shst match usr/node/"
+            + input_file_name
+            + ".geojson --out=usr/node/"
+            + "match."
+            + input_file_name
+            + ".geojson "
+            + match_option
         )
     )
 
     container.stop()
+
 
 def read_shst_extraction(path, suffix):
     """
     read all shst extraction geojson file
     """
     shst_gdf = DataFrame()
-    
-    shst_file = glob.glob(path + "**/" + suffix, recursive = True)
+
+    shst_file = glob.glob(path + "**/" + suffix, recursive=True)
     RanchLogger.info("----------start reading shst extraction data-------------")
     for i in shst_file:
         RanchLogger.info("reading shst extraction data : {}".format(i))
         new = gpd.read_file(i)
-        new['source'] = i
-        shst_gdf = pd.concat([shst_gdf, new],
-                             ignore_index = True,
-                             sort = False)
+        new["source"] = i
+        shst_gdf = pd.concat([shst_gdf, new], ignore_index=True, sort=False)
     RanchLogger.info("----------finished reading shst extraction data-------------")
-    
+
     return shst_gdf
 
-def extract_osm_link_from_shst_extraction(
-    shst_extraction_df: GeoDataFrame
-):
+
+def extract_osm_link_from_shst_extraction(shst_extraction_df: GeoDataFrame):
     """
     expand each shst extract record into osm segments
     """
@@ -248,7 +277,7 @@ def extract_osm_link_from_shst_extraction(
 
     temp = shst_extraction_df.apply(
         lambda x: _extract_osm_link_from_shst_extraction(x, osm_from_shst_link_list),
-        axis = 1
+        axis=1,
     )
 
     osm_from_shst_link_df = pd.concat(osm_from_shst_link_list)
@@ -256,19 +285,20 @@ def extract_osm_link_from_shst_extraction(
     # get complete shst info
     osm_from_shst_link_df = pd.merge(
         osm_from_shst_link_df,
-        shst_extraction_df.drop(["roadClass", "metadata", "source"], axis = 1),
-        how = "left",
-        left_on = "geometryId",
-        right_on = "id"
+        shst_extraction_df.drop(["roadClass", "metadata", "source"], axis=1),
+        how="left",
+        left_on="geometryId",
+        right_on="id",
     )
 
     return osm_from_shst_link_df
 
+
 def _extract_osm_link_from_shst_extraction(
-        row: pd.Series,
-        osm_from_shst_link_list: list,
-    ):
-        link_df = DataFrame(row.get("metadata").get("osmMetadata").get("waySections"))
-        link_df["geometryId"] = row.get("metadata").get("geometryId")
-    
-        osm_from_shst_link_list.append(link_df)
+    row: pd.Series,
+    osm_from_shst_link_list: list,
+):
+    link_df = DataFrame(row.get("metadata").get("osmMetadata").get("waySections"))
+    link_df["geometryId"] = row.get("metadata").get("geometryId")
+
+    osm_from_shst_link_list.append(link_df)

@@ -1,10 +1,11 @@
 lark-parser
 jupyter
 notebook
+numpy
 pandas > 1.0
 geographiclib
 geopandas >= 0.8.0
-osmnx == 0.14.1
+osmnx
 partridge >= 1.1
 pyyaml
 geographiclib
@@ -13,3 +14,4 @@ jsonschema
 folium
 docker
 peartree
+shapely
