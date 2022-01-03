@@ -10,37 +10,30 @@ It aims to have the following functionality:
 ## Installation
 
 ### Requirements
-Ranch uses Python 3.7 and above.  Requirements are stored in `requirements.txt` but are automatically installed when using `pip` as are development requirements (for now) which are located in `dev-requirements.txt`.
+- Ranch requires user to install [SharedStreets' Node.js implementation](https://github.com/sharedstreets/sharedstreets-js#sharedstreets-nodejs--javascript), using the Docker installation. User will first install Docker on the machine, and then build SharedStreets image using this [Dockerfile](https://github.com/wsp-sag/Ranch/blob/develop/ranch/Dockerfile). See more instruction below.
 
-The intallation instructions use the [`conda`](https://conda.io/en/latest/) virtual environment manager and some use the ['git'](https://git-scm.com/downloads) version control software.
+- Ranch uses Python 3.7 and above.  Requirements are stored in `requirements.txt` but are automatically installed when using `pip` as are development requirements (for now) which are located in `dev-requirements.txt`.
 
-### Basic instructions
+  The intallation instructions use the [`conda`](https://conda.io/en/latest/) virtual environment manager and some use the ['git'](https://git-scm.com/downloads) version control software.
+
+### Ranch Installation
 If you are managing multiple python versions, we suggest using [`virtualenv`](https://virtualenv.pypa.io/en/latest/) or [`conda`](https://conda.io/en/latest/) virtual environments. All commands should executed in a conda command prompt, not powershell or the system command prompt. Do not add conda to the system path during installation. This may cause problems with other programs that require python 2.7 to be placed in the system path.
 
-Example using a conda environment (recommended) and using the package manager [pip](https://pip.pypa.io/en/stable/) to install Ranch from the source on GitHub.
+Example using a conda environment and using the package manager [pip](https://pip.pypa.io/en/stable/) to install Ranch from the source on GitHub.
+
+#### Basic Installation
 
 ```bash
 conda config --add channels conda-forge
 conda create python=3.7 rtree geopandas folium osmnx -n <my_ranch_environment>
 conda activate <my_ranch_environment>
-pip install git+https://github.com/wsp-sag/Ranch@develop
+pip install git+https://github.com/wsp-sag/Ranch@master
 ```
-Ranch can be installed in several ways depending on the user's needs. The above installation is the simplest method and is appropriate when the user does not anticipate needing to update Ranch. An update will require rebuilding the network wrangler environment. Installing from clone is slightly more involved and requires the user to have a git manager on their machine, but permits the user to install Ranch with the -e, edit, option so that their Ranch installation can be updated through pulling new commits from the Ranch repo without a full reinstallation.
-
-
-#### Bleeding Edge
-If you want to install a more up-to-date or development version you can do so by installing it from
-
-```bash
-conda config --add channels conda-forge
-conda create python=3.7 rtree geopandas folium osmnx -n <my_ranch_environment>
-conda activate <my_ranch_environment>
-pip install git+https://github.com/wsp-sag/Ranch@develop
-```
+Ranch can be installed in several ways depending on the user's needs. The above installation is the simplest method and is appropriate when the user does not anticipate needing to update Ranch. An update will require rebuilding the ranch environment. Installing from clone is slightly more involved and requires the user to have a git manager on their machine, but permits the user to install Ranch with the -e, edit, option so that their Ranch installation can be updated through pulling new commits from the Ranch repo without a full reinstallation.
 
 Note: if you wanted to install from a specific tag/version number or branch, replace `@master` with `@<branchname>`  or `@tag`
 
-#### From Clone
+#### From Clone (Recommended for project team)
 If you are going to be working on Ranch locally, you might want to clone it to your local machine and install it from the clone.  The -e will install it in [editable mode](https://pip.pypa.io/en/stable/reference/pip_install/?highlight=editable#editable-installs).
 
 ```bash
@@ -53,6 +46,25 @@ pip install -e .
 ```
 
 Note: if you are not part of the project team and want to contribute code bxack to the project, please fork before you clone and then add the original repository to your upstream origin list per [these directions on github](https://help.github.com/en/articles/fork-a-repo).
+
+### Docker & SharedStreets
+Before running Ranch, user need to install SharedStreets via Docker. The steps are as following:
+
+ 1. Install Docker.
+ 2. Open command line prompt, change base directory to the Ranch directory
+ ```bash
+ cd path/to/your/ranch/directory/
+ ```
+ 3. Build SharedStreets image using this [Dockerfile](https://github.com/wsp-sag/Ranch/blob/develop/ranch/Dockerfile), name the local image as `shst`
+ ```bash
+ cd ranch
+ docker build -t shst .
+ ```
+ 4. To test if SharedStreets image is built successfully, user can run the following to start a container node
+ ```bash
+ docker run -it --rm -v /path/to/your/local/directory:/usr/node/ shst:latest /bin/bash
+ ```
+ if succeeded, user can see a node being launched
 
 ## Documentation
 

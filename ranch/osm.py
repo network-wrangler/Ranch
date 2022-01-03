@@ -10,6 +10,7 @@ import osmnx as ox
 from pyproj import CRS
 
 from .utils import link_df_to_geojson, point_df_to_geojson
+from .parameters import standard_crs
 
 __all__ = ["run_osmnx_extraction"]
 
@@ -47,7 +48,7 @@ def run_osmnx_extraction(
             raise ValueError(msg)
 
     # convert to lat-long
-    polygon_gdf = polygon_gdf.to_crs(CRS("EPSG:4269"))
+    polygon_gdf = polygon_gdf.to_crs(standard_crs)
 
     boundary = polygon_gdf.geometry.unary_union
 

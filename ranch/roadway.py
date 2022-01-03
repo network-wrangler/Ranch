@@ -17,6 +17,7 @@ from .osm import add_two_way_osm, highway_attribute_list_to_value
 from .utils import create_unique_node_id, fill_na, identify_dead_end_nodes, buffer1, get_non_near_connectors, haversine_distance
 from .utils import generate_centroid_connectors_link, generate_centroid_connectors_shape, create_unique_shape_id, create_unique_link_id
 from .parameters import Parameters
+from .parameters import standard_crs
 
 class Roadway(object):
     """
@@ -681,7 +682,7 @@ class Roadway(object):
                     else:
                         RanchLogger.info("input file {} has crs : {}".format(input_taz_polygon_file, taz_polygon_gdf.crs))
                         # convert to lat-long
-                        taz_polygon_gdf = taz_polygon_gdf.to_crs(epsg = 4269)
+                        taz_polygon_gdf = taz_polygon_gdf.to_crs(self.parameters.standard_crs)
                     if taz_unique_id is None:
                         taz_polygon_gdf['taz_id'] = range(1, 1+len(taz_polygon_gdf))
                     elif taz_unique_id not in taz_polygon_gdf.columns:
@@ -711,7 +712,7 @@ class Roadway(object):
                         raise ValueError(msg)
 
                     # convert to lat-long
-                    taz_node_gdf = taz_node_gdf.to_crs(epsg = 4269)
+                    taz_node_gdf = taz_node_gdf.to_crs(self.parameters.standard_crs)
                 else:
                     msg = "Invalid network file {}, should be .shp or .geojson".format(input_taz_node_file)
                     RanchLogger.error(msg)
@@ -807,7 +808,7 @@ class Roadway(object):
         """
         attribute taz node with county, model_node_id, drive_access, walk_access, bike_access
         """
-        print(taz_node_gdf.county.value_counts(dropna = False))
+        
         # assign model node id based on county taz rules
         taz_node_gdf["model_node_id"] = taz_node_gdf.groupby(["county"]).cumcount()
 
