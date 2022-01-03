@@ -1,11 +1,10 @@
 import glob
 import os
-from typing import Optional
+from typing import Optional, Union
 
 import docker
 import geopandas as gpd
 import pandas as pd
-from geopandas import GeoDataFrame
 from pandas import DataFrame
 from pyproj import CRS
 
@@ -14,29 +13,33 @@ from .parameters import standard_crs, alt_standard_crs
 
 __all__ = ["run_shst_extraction"]
 
+
 def run_shst_extraction(
-    input_polygon_file: Union[GeoDataFrame, str],
-    output_dir: str
+    input_polygon_file: Union[gpd.GeoDataFrame, str],
+    output_dir: str = None,
+    pylib: bool = False
 ):
     """
     run sharedstreet extraction with input polygon
 
     Args:
-        input_area_polygon_file: input polygon file that defines the extract region
-        output_extraction_file: output file that stores the extraction
+        input_polygon_file: input polygon file location or :func:`~gpd.GeoDataFrame` that defines the extract region
+        output_dir: output directory that stores the extraction
     """
 
 #    if not input_polygon_file:
 #        msg = "Missing polygon file for sharedstreet extraction."
 #        RanchLogger.error(msg)
 #        raise ValueError(msg)
-        
-    if not isinstance(input_polygon_file, (str, GeoDataFrame)):
+    if pylib:
+        import sharedstreets.dataframe
+
+    if not isinstance(input_polygon_file, (str, gpd.GeoDataFrame)):
         msg = "Polygon input must be a file path or a GeoDataFrame"
         RanchLogger.error(msg)
         raise ValueError(msg)
 
-    if not output_dir:
+    if not output_dir and not pylib:
         msg = "Please specify output filename for extraction result."
         RanchLogger.error(msg)
         raise ValueError(msg)
@@ -51,7 +54,7 @@ def run_shst_extraction(
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
-    elif isinstance(input_polygon_file, GeoDataFrame):
+    elif isinstance(input_polygon_file, gpd.GeoDataFrame):
         # No need to create a copy, since the to_crs line in the
         # below will return a copy.
         polygon_gdf = input_polygon_file
@@ -63,29 +66,42 @@ def run_shst_extraction(
     # convert to lat-long
     polygon_gdf = polygon_gdf.to_crs(standard_crs)
 
+    extracts = []
+
     # export polygon to geojson for shst node js
     for i in range(len(polygon_gdf.geometry)):
-
-        RanchLogger.info(
-            "Exporting boundry file {}".format(
-                os.path.join(output_dir, "boundary." + str(i) + ".geojson")
-            )
-        )
-
         boundary_gdf = gpd.GeoDataFrame(
             {"geometry": gpd.GeoSeries(polygon_gdf.geometry.iloc[i])}
         )
 
-        boundary_gdf.to_file(
-            os.path.join(output_dir, "boundary." + str(i) + ".geojson"),
-            driver="GeoJSON",
-        )
+        if output_dir or not pylib:
+            RanchLogger.info(
+                "Exporting boundry file {}".format(
+                    os.path.join(output_dir, "boundary." + str(i) + ".geojson")
+                )
+            )
+
+            boundary_gdf.to_file(
+                os.path.join(output_dir, "boundary." + str(i) + ".geojson"),
+                driver="GeoJSON",
+            )
 
         RanchLogger.info("extracting for polygon {}".format(i))
 
-        _run_shst_extraction(
-            input_file_name="boundary." + str(i), output_dir=output_dir
-        )
+        if pylib:
+            minx, miny, maxx, maxy = boundary_gdf.total_bounds
+            shst = sharedstreets.dataframe.get_bbox(minx, miny, maxx, maxy, include_metadata=True)
+            extracts.append(shst.geometries)
+            if output_dir:
+                shst.geometries.to_file(os.path.join(output_dir, f"extract.boundary.{i}.out.geojson"), driver="GeoJSON")
+        else:
+            _run_shst_extraction(
+                input_file_name="boundary." + str(i), output_dir=output_dir
+            )
+            extracts.append(gpd.read_file(os.path.join(output_dir, f"extract.boundary.{i}.out.geojson")))
+
+    extracts = pd.concat(extracts)
+    return gpd.GeoDataFrame(extracts.drop(columns='geometry'), geometry=extracts['geometry'])
 
 
 def _run_shst_extraction(
@@ -278,7 +294,7 @@ def read_shst_extraction(path, suffix):
     return shst_gdf
 
 
-def extract_osm_link_from_shst_extraction(shst_extraction_df: GeoDataFrame):
+def extract_osm_link_from_shst_extraction(shst_extraction_df: gpd.GeoDataFrame):
     """
     expand each shst extract record into osm segments
     """
@@ -291,10 +307,12 @@ def extract_osm_link_from_shst_extraction(shst_extraction_df: GeoDataFrame):
 
     osm_from_shst_link_df = pd.concat(osm_from_shst_link_list)
 
+    drop_cols = [col for col in ["roadClass", "metadata", "source"] if col in shst_extraction_df]
+
     # get complete shst info
     osm_from_shst_link_df = pd.merge(
         osm_from_shst_link_df,
-        shst_extraction_df.drop(["roadClass", "metadata", "source"], axis=1),
+        shst_extraction_df.drop(drop_cols, axis=1),
         how="left",
         left_on="geometryId",
         right_on="id",
