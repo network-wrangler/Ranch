@@ -14,9 +14,10 @@ from .parameters import standard_crs, alt_standard_crs
 
 __all__ = ["run_shst_extraction"]
 
-
-def run_shst_extraction(input_polygon_file: str, output_dir: str):
-
+def run_shst_extraction(
+    input_polygon_file: Union[GeoDataFrame, str],
+    output_dir: str
+):
     """
     run sharedstreet extraction with input polygon
 
@@ -25,8 +26,13 @@ def run_shst_extraction(input_polygon_file: str, output_dir: str):
         output_extraction_file: output file that stores the extraction
     """
 
-    if not input_polygon_file:
-        msg = "Missing polygon file for sharedstreet extraction."
+#    if not input_polygon_file:
+#        msg = "Missing polygon file for sharedstreet extraction."
+#        RanchLogger.error(msg)
+#        raise ValueError(msg)
+        
+    if not isinstance(input_polygon_file, (str, GeoDataFrame)):
+        msg = "Polygon input must be a file path or a GeoDataFrame"
         RanchLogger.error(msg)
         raise ValueError(msg)
 
@@ -35,7 +41,8 @@ def run_shst_extraction(input_polygon_file: str, output_dir: str):
         RanchLogger.error(msg)
         raise ValueError(msg)
 
-    if input_polygon_file:
+
+    if isinstance(input_polygon_file, str):
         filename, file_extension = os.path.splitext(input_polygon_file)
         if file_extension in [".shp", ".geojson"]:
             polygon_gdf = gpd.read_file(input_polygon_file)
@@ -44,6 +51,10 @@ def run_shst_extraction(input_polygon_file: str, output_dir: str):
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
+    elif isinstance(input_polygon_file, GeoDataFrame):
+        # No need to create a copy, since the to_crs line in the
+        # below will return a copy.
+        polygon_gdf = input_polygon_file
 
     # avoid conversion between WGS lat-long and NAD lat-long
     if polygon_gdf.crs == alt_standard_crs:

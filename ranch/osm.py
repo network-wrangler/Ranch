@@ -1,6 +1,8 @@
 import json
 import os
 
+from typing import Union
+
 import geopandas as gpd
 import networkx as nx
 import osmnx as ox
@@ -14,8 +16,10 @@ from .utils import link_df_to_geojson, point_df_to_geojson
 __all__ = ["run_osmnx_extraction"]
 
 
-def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
-
+def run_osmnx_extraction(
+    input_polygon_file: Union[GeoDataFrame, str],
+    output_dir: str
+):
     """
     run osmnx extraction with input polygon
 
@@ -24,17 +28,23 @@ def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
         output_extraction_file: output file that stores the extraction
     """
 
-    if not input_polygon_file:
-        msg = "Missing polygon file for sharedstreet extraction."
+#    if not input_polygon_file:
+#        msg = "Missing polygon file for sharedstreet extraction."
+#        RanchLogger.error(msg)
+#        raise ValueError(msg)
+
+    if not isinstance(input_polygon_file, (str, GeoDataFrame)):
+        msg = "Polygon input must be a file path or a GeoDataFrame"
         RanchLogger.error(msg)
         raise ValueError(msg)
+
 
     if not output_dir:
         msg = "Please specify output filename for extraction result."
         RanchLogger.error(msg)
         raise ValueError(msg)
 
-    if input_polygon_file:
+    if isinstance(input_polygon_file, str):
         filename, file_extension = os.path.splitext(input_polygon_file)
         if file_extension in [".shp", ".geojson"]:
             polygon_gdf = gpd.read_file(input_polygon_file)
@@ -43,6 +53,11 @@ def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
+    elif isinstance(input_polygon_file, GeoDataFrame):
+        # No need to create a copy, since the to_crs line in the
+        # below will return a copy.
+        polygon_gdf = input_polygon_file
+
 
     # avoid conversion between WGS lat-long and NAD lat-long
     if polygon_gdf.crs == alt_standard_crs:
@@ -72,6 +87,8 @@ def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
     with open(os.path.join(output_dir, "node.geojson"), "w") as f:
         json.dump(node_geojson, f)
 
+    return link_geojson, node_geojson
+
 
 def add_two_way_osm(link_gdf, osmnx_link):
     """
@@ -97,6 +114,7 @@ def add_two_way_osm(link_gdf, osmnx_link):
     RanchLogger.info(
         "shst extraction has {} geometries".format(osm_link_gdf.id.nunique())
     )
+
     RanchLogger.info("shst extraction has {} osm links".format(osm_link_gdf.shape[0]))
 
     osm_link_gdf["u"] = osm_link_gdf.nodeIds.apply(lambda x: int(x[0]))

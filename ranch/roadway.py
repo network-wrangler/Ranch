@@ -69,62 +69,62 @@ class Roadway(object):
             raise ValueError(msg)
 
     def create_roadway_network_from_extracts(
-        shst_extract_dir: str,
-        osm_extract_dir: str,
+        shst_link_gdf: gpd.GeoDataFrame,
+        osmnx_link_gdf: gpd.GeoDataFrame,
+        osmnx_node_gdf: gpd.GeoDataFrame,
+        #osm_extract_dir: str,
         parameters: Dict,
     ):
         """
         creates roadway network from shst and osm extracts
         """
 
-        if not shst_extract_dir:
-            msg = "Please specify directory for sharedstreet extraction files."
-            RanchLogger.error(msg)
-            raise ValueError(msg)
+        #if not shst_extract_dir:
+        #    msg = "Please specify directory for sharedstreet extraction files."
+        #    RanchLogger.error(msg)
+        #    raise ValueError(msg)
 
-        if not osm_extract_dir:
-            msg = "Please specify directory for osmnx extraction files."
-            RanchLogger.error(msg)
-            raise ValueError(msg)
+        #if not osm_extract_dir:
+        #    msg = "Please specify directory for osmnx extraction files."
+        #    RanchLogger.error(msg)
+        #    raise ValueError(msg)
 
-        if shst_extract_dir:
-            RanchLogger.info("Reading sharedstreets data")
-            shst_link_gdf = read_shst_extraction(shst_extract_dir, "*.out.geojson")
+        #if shst_extract_dir:
+        #    RanchLogger.info("Reading sharedstreets data")
+        #    shst_link_gdf = read_shst_extraction(shst_extract_dir, "*.out.geojson")
 
             # shst geometry file might have duplicates, if multiple geometries has overlapping tiles
             # drop duplicates
 
-            RanchLogger.info("Removing duplicates in shst extraction data")
-            RanchLogger.info(
-                "...before removing duplicates, shst extraction has {} geometries.".format(
-                    shst_link_gdf.shape[0]
-                )
-            )
 
-            shst_link_non_dup_gdf = shst_link_gdf.drop_duplicates(
-                subset=[
-                    "id",
-                    "fromIntersectionId",
-                    "toIntersectionId",
-                    "forwardReferenceId",
-                    "backReferenceId",
-                ]
+        RanchLogger.info("Removing duplicates in shst extraction data")
+        RanchLogger.info(
+            "...before removing duplicates, shst extraction has {} geometries.".format(
+                shst_link_gdf.shape[0]
             )
+        )
 
-            RanchLogger.info(
-                "...after removing duplicates, shst extraction has {} geometries.".format(
-                    shst_link_non_dup_gdf.shape[0]
-                )
-            )
+        shst_link_non_dup_gdf = shst_link_gdf.drop_duplicates(
+            subset=[
+                "id",
+                "fromIntersectionId",
+                "toIntersectionId",
+                "forwardReferenceId",
+                "backReferenceId",
+            ]
+        )
 
-        if osm_extract_dir:
-            RanchLogger.info("Reading osmnx data")
-            osmnx_link_gdf = gpd.read_file(
-                os.path.join(osm_extract_dir, "link.geojson")
+        RanchLogger.info(
+            "...after removing duplicates, shst extraction has {} geometries.".format(
+                shst_link_non_dup_gdf.shape[0]
             )
-            osmnx_node_gdf = gpd.read_file(
-                os.path.join(osm_extract_dir, "node.geojson")
-            )
+        )
+
+        
+        #if osm_extract_dir:
+        #    RanchLogger.info("Reading osmnx data")
+        #    osmnx_link_gdf = gpd.read_file(os.path.join(osm_extract_dir, "link.geojson"))
+        #    osmnx_node_gdf = gpd.read_file(os.path.join(osm_extract_dir, "node.geojson"))
 
         RanchLogger.info("Extracting corresponding osm ways for every shst geometry")
         osm_from_shst_link_df = extract_osm_link_from_shst_extraction(
