@@ -12,6 +12,7 @@ from scipy.spatial import cKDTree
 import json
 from functools import partial
 import pyproj
+from pyproj import CRS
 from shapely.ops import transform
 import hashlib
 
@@ -157,11 +158,11 @@ def find_closest_node(
         """
 
         # convert crs
-        node_df = node_df.to_crs({'init' : 'epsg:26915'})
+        node_df = node_df.to_crs(CRS('epsg:26915'))
         node_df['X'] = node_df['geometry'].apply(lambda p: p.x)
         node_df['Y'] = node_df['geometry'].apply(lambda p: p.y)
 
-        node_candidates_df = node_candidates_df.to_crs({'init' : 'epsg:26915'})
+        node_candidates_df = node_candidates_df.to_crs(CRS('epsg:26915'))
         node_candidates_df['X'] = node_candidates_df.geometry.map(lambda g:g.x)
         node_candidates_df['Y'] = node_candidates_df.geometry.map(lambda g:g.y)
 

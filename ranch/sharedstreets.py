@@ -130,7 +130,7 @@ def run_shst_match(
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
-            RanchLogger.info("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
+            RanchLogger.debug("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
         
         else:
             msg = "Invalid network file, should be .shp or .geojson"

@@ -10,6 +10,7 @@ from pandas import DataFrame
 import pandas as pd
 import numpy as np
 from shapely.geometry import Point
+from pyproj import CRS
 
 from .logger import RanchLogger
 from .sharedstreets import read_shst_extraction, extract_osm_link_from_shst_extraction
@@ -41,9 +42,14 @@ class Roadway(object):
             parameters: dictionary of parameter settings (see Parameters class) or an instance of Parameters. If not specified, will use default parameters.
 
         """
-        self.nodes_df = nodes
-        self.links_df = links
-        self.shapes_df = shapes
+        # convert to standard crs
+        nodes_df = nodes.to_crs(parameters.standard_crs)
+        links_df = links.to_crs(parameters.standard_crs)
+        shapes_df = shapes.to_crs(parameters.standard_crs)
+
+        self.nodes_df = nodes_df
+        self.links_df = links_df
+        self.shapes_df = shapes_df
 
         # will have to change if want to alter them
         if type(parameters) is dict:
@@ -224,7 +230,7 @@ class Roadway(object):
                                     ignore_index = True)
             
         shst_link_gdf = GeoDataFrame(shst_link_gdf,
-                                        crs = {'init': 'epsg:4326'})
+                                        crs = CRS('epsg:4326'))
         
         return shst_link_gdf
 
@@ -269,7 +275,7 @@ class Roadway(object):
         point_gdf.drop_duplicates(subset = ["osm_node_id", "shst_node_id"], inplace = True)
         
         point_gdf = GeoDataFrame(point_gdf,
-                                    crs = {'init': 'epsg:4326'})
+                                    crs = CRS('epsg:4326'))
         
         return point_gdf
 
@@ -298,9 +304,15 @@ class Roadway(object):
         self,
         county_boundary_file: str,
         county_variable_name: str,
+        create_node_link_id: bool = False
     ):
         """
         step 5: clean up roadway object
+
+        Args:
+            county_boundary_file: path to county polygon file with county variable name
+            county_variable_name: variable name in the county boundary file that has the name of county
+            create_node_link_id: Boolean, if create internal node and link id, which is in addition to osm and shst ids.
         """
 
         if not county_boundary_file:
@@ -341,7 +353,8 @@ class Roadway(object):
         self._drop_alternative_links_between_same_AB_nodes()
 
         ## 5.5 link and node numbering
-        self._link_node_numbering()
+        if create_node_link_id:
+            self._link_node_numbering()
 
     def _calculate_county(
         self,
@@ -360,7 +373,7 @@ class Roadway(object):
             links_df, 
             county_gdf, 
             how="left", 
-            op="intersects"
+            predicate="intersects"
         )
 
         # for links that cross county boudaries and potentially sjoin-ed to two counties
@@ -371,15 +384,14 @@ class Roadway(object):
             inplace = True
         )
 
-        # links_centroid_df['geometry'] = links_centroid_df["geometry"].centroid
         joined_nodes_gdf = gpd.sjoin(
             nodes_df, 
             county_gdf, 
             how="left", 
-            op="intersects"
+            predicate="intersects"
         )
 
-        # for links that cross county boudaries and potentially sjoin-ed to two counties
+        # for nodes that cross county boudaries and potentially sjoin-ed to two counties
         # drop duplciates, keep one county match
         joined_nodes_gdf.drop_duplicates(
             subset = ['osm_node_id','shst_node_id'], 
@@ -391,7 +403,7 @@ class Roadway(object):
             inplace = True
         )
         
-        joined_nodes_gdf['county'].fillna('San Joaquin', inplace = True)
+        joined_nodes_gdf['county'].fillna('outside', inplace = True)
 
         # join back to roadway object
         self.links_df = pd.merge(
@@ -465,7 +477,7 @@ class Roadway(object):
         # update node and link drive access
         # if u/v in dead end node list, then drive access = 0
         # if osm_node_id in dead end node list, then drive access = 0
-        RanchLogger.info("Making drive-end streets drive_access = 1")
+        RanchLogger.info("Making dead-end streets drive_access = 0")
 
         self.links_df['drive_access'] = np.where(
             (
@@ -537,7 +549,7 @@ class Roadway(object):
         # add length in meters
 
         geom_length = self.links_df[['geometry']].copy()
-        geom_length = geom_length.to_crs(epsg = 26915)
+        geom_length = geom_length.to_crs(CRS('epsg:26915'))
         geom_length["length"] = geom_length.length
 
         self.links_df["length"] = geom_length["length"]
@@ -725,7 +737,7 @@ class Roadway(object):
                     taz_polygon_gdf,
                     self.county_gdf[['geometry', self.county_variable_name]],
                     how = 'left',
-                    op = 'intersects'
+                    predicate = 'intersects'
                 )
 
                 taz_polygon_gdf.rename(columns = {self.county_variable_name : 'county'}, inplace = True)
@@ -897,7 +909,7 @@ class Roadway(object):
             join_gdf,
             self.county_gdf[['geometry', self.county_variable_name]],
             how = 'left',
-            op = 'within'
+            predicate = 'within'
         )
 
         taz_cc_shape_gdf['county'] = join_gdf[self.county_variable_name]
@@ -996,7 +1008,7 @@ class Roadway(object):
             nodes_gdf, 
             polygon_buffer_gdf[["geometry", "taz_id"]], 
             how = "left", 
-            op = "intersects"
+            predicate = "intersects"
         )
 
         return nodes_in_zones_gdf
@@ -1205,10 +1217,10 @@ class Roadway(object):
         node_gdf['X'] = node_gdf['geometry'].apply(lambda p: p.x)
         node_gdf['Y'] = node_gdf['geometry'].apply(lambda p: p.y)
         node_gdf['point'] = [list(xy) for xy in zip(node_gdf.X, node_gdf.Y)]
-        node_dict = dict(zip(node_gdf.model_node_id, node_gdf.point))
+        node_dict = dict(zip(node_gdf.shst_node_id, node_gdf.point))
     
-        link_gdf['A_point'] = link_gdf['A'].map(node_dict)
-        link_gdf['B_point'] = link_gdf['B'].map(node_dict)
+        link_gdf['A_point'] = link_gdf['fromIntersectionId'].map(node_dict)
+        link_gdf['B_point'] = link_gdf['toIntersectionId'].map(node_dict)
 
         link_gdf[variable] = link_gdf.apply(
             lambda x: [
