@@ -77,6 +77,7 @@ class Transit(object):
         self.bus_stops: pd.DataFrame() = None
         self.rail_trip_link_df: pd.DataFrame() = None
         self.rail_stops: pd.DataFrame() = None
+        self.shortest_path_failed_shape_list: list = []
 
         # will have to change if want to alter them
         if type(parameters) is dict:
@@ -101,7 +102,11 @@ class Transit(object):
         """
 
         gtfs_agencies_list = os.listdir(gtfs_dir)
-
+        if 'gtfs_shape_for_shst_match' in gtfs_agencies_list:
+            gtfs_agencies_list.remove('gtfs_shape_for_shst_match')
+        if 'osm_routing.geojson' in gtfs_agencies_list:
+            gtfs_agencies_list.remove('osm_routing.geojson')
+        
         feed = DotDict()
         feed.agency = pd.DataFrame()
         feed.routes = pd.DataFrame()
@@ -586,6 +591,11 @@ class Transit(object):
             for trip_id in trip_id_list:
             
                 RanchLogger.info("\tRouting agency {}, trip {}".format(agency_raw_name, trip_id))
+                shape_id = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['shape_id'].iloc[0]
+
                 # get the stops on the trip
                 trip_stops_df = stop_time_df[
                     (stop_time_df['trip_id'] == trip_id) &
@@ -637,6 +647,15 @@ class Transit(object):
                     weight_field = "length_weighted"
                 )
 
+                if type(path_osm_link_df) == str:
+                    self.shortest_path_failed_shape_list.append(
+                        '{}_{}'.format(
+                            agency_raw_name, 
+                            shape_id
+                        )
+                    )
+                    continue
+
                 path_osm_link_df['trip_id'] = trip_id
                 path_osm_link_df['agency_raw_name'] = agency_raw_name
                 
@@ -673,12 +692,15 @@ class Transit(object):
         """
 
         # routing btw from and to nodes, return the list of nodes
-        node_osmid_list = nx.shortest_path(
-            G, 
-            from_node, 
-            to_node, 
-            weight_field
-        )
+        try:
+            node_osmid_list = nx.shortest_path(
+                G, 
+                from_node, 
+                to_node, 
+                weight_field
+            )
+        except:
+            return 'No Path Found'
 
         # circular route
         if from_node == to_node:
@@ -1034,6 +1056,15 @@ class Transit(object):
                         weight_field = "length_weighted"
                     )
                     
+                    if type(path_osm_link_df) == str:
+                        self.shortest_path_failed_shape_list.append(
+                            '{}_{}'.format(
+                                agency_raw_name, 
+                                shape_id
+                            )
+                        )
+                        break
+                    
                     path_osm_link_df['trip_id'] = trip_id
                     path_osm_link_df['agency_raw_name'] = agency_raw_name
                     path_osm_link_df['shape_id'] = shape_id
@@ -1050,6 +1081,16 @@ class Transit(object):
             how = 'left', 
             on = ['agency_raw_name', 'shape_id']
         )
+
+        # remove trips that failed to be routed with shortest path
+        trip_osm_link_df['agency_shape_id'] = trip_osm_link_df['agency_raw_name'] + "_" + trip_osm_link_df['shape_id'].astype(str)
+        
+        trip_osm_link_df = trip_osm_link_df[
+            ~(trip_osm_link_df['agency_shape_id'].isin(
+                self.shortest_path_failed_shape_list
+            ))
+        ]
+        trip_osm_link_df.drop(['agency_shape_id'], axis = 1, inplace = True)
 
         trip_osm_link_df = pd.merge(
             trip_osm_link_df,
@@ -1195,12 +1236,12 @@ class Transit(object):
                 crs = self.parameters.standard_crs
             )
             row_gdf.to_file(
-                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name, shape_id)),
+                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name.replace(' ', ''), shape_id.replace(' ', ''))),
                 driver='GeoJSON'
             )
 
             match_input_file_list.append(
-                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name, shape_id))
+                os.path.join(path, "lines_from_shapes_{}_{}.geojson".format(agency_raw_name.replace(' ', ''), shape_id.replace(' ', '')))
             )
         
         if multithread_shst_match:
@@ -1249,10 +1290,11 @@ class Transit(object):
                 self.trip_osm_link_df, 
                 crs = self.roadway_network.links_df.crs)
 
-            trip_osm_link_gdf.drop('wayId',axis=1).to_file(
-                os.path.join(self.gtfs_dir, 'osm_routing.geojson'),
-                driver = 'GeoJSON'
-            )
+            if len(self.trip_osm_link_df) > 0:
+                trip_osm_link_gdf.drop('wayId',axis=1).to_file(
+                    os.path.join(self.gtfs_dir, 'osm_routing.geojson'),
+                    driver = 'GeoJSON'
+                )
            
         # route using shts match
         if self.trip_shst_link_df is None:
@@ -1295,8 +1337,8 @@ class Transit(object):
         ]
 
         trip_osm_link_df['method'] = 'shortest path'
-
-        RanchLogger.info("shortest path method matched {} bus shapes, {} bus trips".format(
+        
+        RanchLogger.info("in the remaining gtfs shapes, shortest path method matched {} bus shapes, {} bus trips".format(
             trip_osm_link_df.agency_shape_id.nunique(),
             len(trip_osm_link_df.groupby(['agency_raw_name', 'trip_id']).count()))
         )
@@ -1368,9 +1410,12 @@ class Transit(object):
                 self.bus_trip_link_df.agency_raw_name == agency_raw_name
             ].copy()
 
-            for trip_id in self.feed.trips.trip_id.unique():
+            for trip_id in self.bus_trip_link_df.trip_id.unique():
                 
                 shape_id = self.feed.trips[self.feed.trips.trip_id == trip_id].shape_id.iloc[0]
+
+                if '{}_{}'.format(agency_raw_name, shape_id) in self.shortest_path_failed_shape_list:
+                    continue
 
                 trip_stop_df = stop_time_df[
                     (stop_time_df.trip_id == trip_id) &
@@ -1815,6 +1860,9 @@ class Transit(object):
                 how = 'left',
                 on = 'shape_shst_node_id'
             )
+
+        if 'geometry' in shape_point_df.columns:
+            shape_point_df.drop(['geometry'], axis = 1, inplace = True)
 
         route_df = self.feed.routes.copy()
         route_df = pd.merge(
