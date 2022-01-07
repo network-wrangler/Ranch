@@ -10,7 +10,7 @@ import osmnx as ox
 from pyproj import CRS
 
 from .utils import link_df_to_geojson, point_df_to_geojson
-from .parameters import standard_crs
+from .parameters import standard_crs, alt_standard_crs
 
 __all__ = ["run_osmnx_extraction"]
 
@@ -46,6 +46,10 @@ def run_osmnx_extraction(
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
+
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if polygon_gdf.crs == alt_standard_crs:
+        polygon_gdf.crs = standard_crs
 
     # convert to lat-long
     polygon_gdf = polygon_gdf.to_crs(standard_crs)

@@ -11,7 +11,7 @@ from pyproj import CRS
 import docker
 import glob
 
-from .parameters import standard_crs
+from .parameters import standard_crs, alt_standard_crs
 
 __all__ = ["run_shst_extraction"]
 
@@ -47,6 +47,10 @@ def run_shst_extraction(
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
+
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if polygon_gdf.crs == alt_standard_crs:
+        polygon_gdf.crs = standard_crs
 
     # convert to lat-long
     polygon_gdf = polygon_gdf.to_crs(standard_crs)
@@ -141,6 +145,10 @@ def run_shst_match(
     if input_crs:
         network_gdf.crs = input_crs
 
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if network_gdf.crs == alt_standard_crs:
+        network_gdf.crs = standard_crs
+
     # convert to lat-long
     network_gdf = network_gdf.to_crs(standard_crs)
     
@@ -213,7 +221,7 @@ def _run_shst_match(
 
     container.exec_run(
         cmd=(
-            'shst match usr/node/'+input_file_name+'.geojson --out=usr/node/'+'match.'+input_file_name+'.geojson '+match_option
+            'shst match usr/node/'+input_file_name+'.geojson --out=usr/node/'+'match.'+input_file_name.replace(' ', '')+'.geojson '+match_option
         )
     )
 

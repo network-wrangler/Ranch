@@ -18,7 +18,7 @@ from .osm import add_two_way_osm, highway_attribute_list_to_value
 from .utils import create_unique_node_id, fill_na, identify_dead_end_nodes, buffer1, get_non_near_connectors, haversine_distance
 from .utils import generate_centroid_connectors_link, generate_centroid_connectors_shape, create_unique_shape_id, create_unique_link_id
 from .parameters import Parameters
-from .parameters import standard_crs
+from .parameters import standard_crs, alt_standard_crs
 
 class Roadway(object):
     """
@@ -230,7 +230,7 @@ class Roadway(object):
                                     ignore_index = True)
             
         shst_link_gdf = GeoDataFrame(shst_link_gdf,
-                                        crs = CRS('epsg:4326'))
+                                        crs = standard_crs)
         
         return shst_link_gdf
 
@@ -275,7 +275,7 @@ class Roadway(object):
         point_gdf.drop_duplicates(subset = ["osm_node_id", "shst_node_id"], inplace = True)
         
         point_gdf = GeoDataFrame(point_gdf,
-                                    crs = CRS('epsg:4326'))
+                                    crs = standard_crs)
         
         return point_gdf
 
@@ -368,6 +368,12 @@ class Roadway(object):
         RanchLogger.info(
             "Joining network with county boundary file for {} county".format(county_gdf[county_variable_name].unique())
         )
+
+        if county_gdf.crs == alt_standard_crs:
+            county_gdf.crs = standard_crs
+        
+        # convert to lat-long
+        county_gdf = county_gdf.to_crs(standard_crs)
 
         joined_links_gdf = gpd.sjoin(
             links_df, 
@@ -693,6 +699,11 @@ class Roadway(object):
                         raise ValueError(msg)
                     else:
                         RanchLogger.info("input file {} has crs : {}".format(input_taz_polygon_file, taz_polygon_gdf.crs))
+                        
+                        # avoid conversion between WGS lat-long and NAD lat-long
+                        if taz_polygon_gdf.crs == alt_standard_crs:
+                            taz_polygon_gdf.crs = standard_crs
+                        
                         # convert to lat-long
                         taz_polygon_gdf = taz_polygon_gdf.to_crs(self.parameters.standard_crs)
                     if taz_unique_id is None:
@@ -722,6 +733,10 @@ class Roadway(object):
                         msg = "Input file {} does not have unique ID {}".format(input_taz_node_file, taz_unique_id)
                         RanchLogger.error(msg)
                         raise ValueError(msg)
+
+                    # avoid conversion between WGS lat-long and NAD lat-long
+                    if taz_node_gdf.crs == alt_standard_crs:
+                        taz_node_gdf.crs = standard_crs
 
                     # convert to lat-long
                     taz_node_gdf = taz_node_gdf.to_crs(self.parameters.standard_crs)
