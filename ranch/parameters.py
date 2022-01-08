@@ -5,6 +5,7 @@ from pyproj import CRS
 from .logger import RanchLogger
 
 standard_crs = CRS("epsg:4326")
+alt_standard_crs = CRS("epsg:4269")
 
 
 def get_base_dir(ranch_base_dir=os.getcwd()):
@@ -130,5 +131,7 @@ class Parameters:
         }
 
         self.standard_crs = CRS("epsg:4326")
+        # do not convert if alt_standard_crs
+        self.alt_standard_crs = CRS("epsg:4269")
 
         self.__dict__.update(kwargs)

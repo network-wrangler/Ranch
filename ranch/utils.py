@@ -10,9 +10,11 @@ import numpy as np
 import osmnx as ox
 import pandas as pd
 import pyproj
+
 from pandas.core.algorithms import unique
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point, Polygon
+from pyproj import CRS
 from shapely.ops import transform
 
 from .logger import RanchLogger
@@ -145,6 +147,55 @@ def geodesic_point_buffer(lat, lon, meters):
     buf = Point(0, 0).buffer(meters)  # distance in metres
     return Polygon(transform(project, buf).exterior.coords[:])
 
+def find_closest_node(
+        node_df,
+        node_candidates_df,
+        unique_id: list
+    ):
+        
+        """
+        find closest node in node_candidates_df for each node in node_df
+        
+        Parameters:
+        ------------
+        node_df
+        node_candidates_df
+        
+        return
+        ------------
+        stops with drive nodes id
+        """
+
+        # convert crs
+        node_df = node_df.to_crs(CRS('epsg:26915'))
+        node_df['X'] = node_df['geometry'].apply(lambda p: p.x)
+        node_df['Y'] = node_df['geometry'].apply(lambda p: p.y)
+
+        node_candidates_df = node_candidates_df.to_crs(CRS('epsg:26915'))
+        node_candidates_df['X'] = node_candidates_df.geometry.map(lambda g:g.x)
+        node_candidates_df['Y'] = node_candidates_df.geometry.map(lambda g:g.y)
+
+        # cKDTree
+        inventory_node_ref = node_candidates_df[['X', 'Y']].values
+        tree = cKDTree(inventory_node_ref)
+    
+        nearest_node_df = pd.DataFrame()
+
+        for i in range(len(node_df)):
+            point = node_df.iloc[i][['X', 'Y']].values
+            dd, ii = tree.query(point, k = 1)
+            add_snap_df = gpd.GeoDataFrame(
+                node_candidates_df.iloc[ii]
+                ).transpose().reset_index(drop = True)
+
+            for c in unique_id:
+                add_snap_df[c] = node_df.iloc[i][c]
+            
+            nearest_node_df = nearest_node_df.append(
+                add_snap_df, 
+                ignore_index=True, 
+                sort=False
+            )
 
 def find_closest_node(node_df, node_candidates_df, unique_id: list):
 

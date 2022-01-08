@@ -44,6 +44,10 @@ def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
             RanchLogger.error(msg)
             raise ValueError(msg)
 
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if polygon_gdf.crs == alt_standard_crs:
+        polygon_gdf.crs = standard_crs
+
     # convert to lat-long
     polygon_gdf = polygon_gdf.to_crs(standard_crs)
 

@@ -10,7 +10,7 @@ from pandas import DataFrame
 from pyproj import CRS
 
 from .logger import RanchLogger
-from .parameters import standard_crs
+from .parameters import standard_crs, alt_standard_crs
 
 __all__ = ["run_shst_extraction"]
 
@@ -44,6 +44,10 @@ def run_shst_extraction(input_polygon_file: str, output_dir: str):
             msg = "Invalid boundary file, should be .shp or .geojson"
             RanchLogger.error(msg)
             raise ValueError(msg)
+
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if polygon_gdf.crs == alt_standard_crs:
+        polygon_gdf.crs = standard_crs
 
     # convert to lat-long
     polygon_gdf = polygon_gdf.to_crs(standard_crs)
@@ -139,11 +143,7 @@ def run_shst_match(
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
-            RanchLogger.info(
-                "input network {} has crs : {}".format(
-                    input_network_file, network_gdf.crs
-                )
-            )
+            RanchLogger.debug("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
 
         else:
             msg = "Invalid network file, should be .shp or .geojson"
@@ -153,6 +153,10 @@ def run_shst_match(
     # set input crs
     if input_crs:
         network_gdf.crs = input_crs
+
+    # avoid conversion between WGS lat-long and NAD lat-long
+    if network_gdf.crs == alt_standard_crs:
+        network_gdf.crs = standard_crs
 
     # convert to lat-long
     network_gdf = network_gdf.to_crs(standard_crs)
@@ -238,13 +242,7 @@ def _run_shst_match(
 
     container.exec_run(
         cmd=(
-            "shst match usr/node/"
-            + input_file_name
-            + ".geojson --out=usr/node/"
-            + "match."
-            + input_file_name
-            + ".geojson "
-            + match_option
+            'shst match usr/node/'+input_file_name+'.geojson --out=usr/node/'+'match.'+input_file_name.replace(' ', '')+'.geojson '+match_option
         )
     )
 
