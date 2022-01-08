@@ -8,7 +8,7 @@ import pandas as pd
 from pyproj import CRS
 
 from .logger import RanchLogger
-from .parameters import standard_crs
+from .parameters import standard_crs, alt_standard_crs
 from .utils import link_df_to_geojson, point_df_to_geojson
 
 __all__ = ["run_osmnx_extraction"]
