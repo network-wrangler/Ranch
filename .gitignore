@@ -1,0 +1,28 @@
+# Compiled Source
+*.pyc
+
+# Temp
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Packaging anf Installing
+eggs/
+.eggs/
+*.egg
+*.egg-info/
+
+# Data
+data/
+
+# Tests
+tests/scratch
+
+# OSM Cache
+**/cache/*
+
+# Pycharm
+.idea/*

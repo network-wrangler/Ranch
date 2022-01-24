@@ -1,0 +1,17 @@
+lark-parser
+jupyter
+notebook
+numpy
+pandas > 1.0
+geographiclib
+geopandas >= 0.8.0
+osmnx
+partridge >= 1.1
+pyyaml
+geographiclib
+geojson
+jsonschema
+folium
+docker
+peartree
+shapely
