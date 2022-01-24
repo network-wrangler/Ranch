@@ -1,11 +1,13 @@
 # Ranch
-This is the package for building standard roadway and transit networks from scratch
+This is the Python package for building standard roadway and transit networks from scratch. Before becoming `Ranch`, it was also referred to as the `Standard Network Building Pipeline`, which consisted of a series of Python notebooks.
 
 It aims to have the following functionality:
 
  1. build OSM-based roadway network in standard [`Network Wrangler`](https://github.com/wsp-sag/network_wrangler) format
- 2. build GTFS-based transit network in standard Network Wrangler format
+ 2. build GTFS-based transit network in standard [`Network Wrangler`](https://github.com/wsp-sag/network_wrangler) format
  3. build travel model centroid connectors
+
+For the latest code developments, check out the `develop` branch.
 
 ## Installation
 
@@ -114,4 +116,4 @@ conda install -c conda-forge *library*
 Try running Anaconda Prompt as an administrator.
 
 ## Client Contact and Relationship
-WSP team member responsible for this repository is [Sijia Wang](sijia.wang@wsp.com).
+Before becoming `Ranch`, the `Standard Network Building Pipeline` consisted of a series of python notebooks, which have been implemented to build networks for regions including Minneapolis (Met Council), Bay Area (MTC), and Southeast Florida (SERPM). Those agencies all had different variations of the Standard Network Building Pipeline notebooks due to many reasons, e.g. steps in the pipeline have been getting revised and methods have been evolving, also agencies required different network features. However, the fundamental steps in the process are the same across regions. To standardize the network building process so that the same basic steps can be applied to any region, `Ranch` was created as a Python package that hosts universal network building steps. Our agency partners so far include Met Council, MTC, Miami-Dade TPO, and BART.
