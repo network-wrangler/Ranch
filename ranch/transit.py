@@ -14,7 +14,7 @@ import partridge as ptg
 import peartree as pt
 from partridge.config import default_config
 from scipy.spatial import cKDTree
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 
 from .logger import RanchLogger
 from .parameters import Parameters
@@ -657,6 +657,33 @@ class Transit(object):
                     (bus_trip_df['trip_id'] == trip_id)
                 ]['shape_id'].iloc[0]
 
+                # create bounding box from shape, xmin, xmax, ymin, ymax
+                shape_df = self.feed.shapes[
+                    (self.feed.shapes.shape_id == shape_id) &
+                    (self.feed.shapes.agency_raw_name == agency_raw_name)
+                ].copy()
+                if len(shape_df) > 0:
+                    shape_pt_lat_min = shape_df['shape_pt_lat'].min() - 0.05
+                    shape_pt_lat_max = shape_df['shape_pt_lat'].max() + 0.05
+                    shape_pt_lon_min = shape_df['shape_pt_lon'].min() - 0.05
+                    shape_pt_lon_max = shape_df['shape_pt_lon'].max() + 0.05
+
+                    lon_list = [shape_pt_lon_min, shape_pt_lon_min, shape_pt_lon_max, shape_pt_lon_max]
+                    lat_list = [shape_pt_lat_min, shape_pt_lat_max, shape_pt_lat_max, shape_pt_lat_min]
+
+                    shape_polygon = Polygon(zip(lon_list, lat_list))
+
+                # get roadway links and nodes within bounding box
+                links_within_polygon_gdf = links_gdf[
+                    links_gdf.geometry.within(shape_polygon)
+                ].copy()
+                nodes_within_polygon_gdf = nodes_gdf[
+                    nodes_gdf['shst_node_id'].isin(
+                        links_within_polygon_gdf.fromIntersectionId.tolist() + 
+                        links_within_polygon_gdf.toIntersectionId.tolist()
+                    )
+                ].copy()
+                
                 # get the stops on the trip
                 trip_stops_df = stop_time_df[
                     (stop_time_df["trip_id"] == trip_id)
@@ -667,23 +694,22 @@ class Transit(object):
                 good_links_list = self.get_good_link_for_trip(trip_stops_df)
 
                 # update link weights
-                links_gdf["length_weighted"] = np.where(
-                    links_gdf.shstReferenceId.isin(good_links_list),
-                    links_gdf["length"],
-                    links_gdf["length"] * non_good_links_penalty,
+                links_within_polygon_gdf["length_weighted"] = np.where(
+                    links_within_polygon_gdf.shstReferenceId.isin(good_links_list),
+                    links_within_polygon_gdf["length"],
+                    links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
                 # apply ft penalty
-                links_gdf["ft_penalty"] = links_gdf["roadway"].map(ft_penalty)
-                links_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
 
-                links_gdf["length_weighted"] = (
-                    links_gdf["length_weighted"] * links_gdf["ft_penalty"]
+                links_within_polygon_gdf["length_weighted"] = (
+                    links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
                 )
 
                 # update graph
-
-                G_trip = ox_graph(nodes_gdf, links_gdf)
+                G_trip = ox_graph(nodes_within_polygon_gdf, links_within_polygon_gdf)
 
                 trip_stops_df.sort_values(by=["stop_sequence"], inplace=True)
 
@@ -976,34 +1002,11 @@ class Transit(object):
 
         RanchLogger.info('Routing bus on roadway network from stop to stop with osmnx...')
 
-        # get route type for trips, get bus trips
-        trip_df = pd.merge(
-            trip_df, self.feed.routes, how="left", on=["agency_raw_name", "route_id"]
-        )
-        bus_trip_df = trip_df[trip_df["route_type"] == 3]
-
-        # for trips with same shape_id, keep the one with the most #stops
-        num_stops_on_trips_df = (
-            stop_time_df.groupby(["agency_raw_name", "trip_id"])["stop_id"]
-            .count()
-            .reset_index()
-            .rename(columns={"stop_id": "num_stop"})
-        )
-
         bus_trip_df = pd.merge(
-            bus_trip_df,
-            num_stops_on_trips_df[["agency_raw_name", "trip_id", "num_stop"]],
-            how="left",
-            on=["agency_raw_name", "trip_id"],
-        )
-
-        bus_trip_df.sort_values(by=["num_stop"], inplace=True, ascending=False)
-
-        # keep the trip with most stops
-        bus_trip_df.drop_duplicates(
-            subset=["agency_raw_name", "route_id", "shape_id"],
-            keep="first",
-            inplace=True,
+            trip_df,
+            self.trip_osm_link_df[['agency_raw_name', 'trip_id']].drop_duplicates(),
+            how = 'inner',
+            on = ['agency_raw_name', 'trip_id']
         )
 
         # output dataframe for osmnx success
@@ -1022,6 +1025,33 @@ class Transit(object):
                     & (bus_trip_df["trip_id"] == trip_id)
                 ]["shape_id"].iloc[0]
 
+                # create bounding box from shape, xmin, xmax, ymin, ymax
+                shape_df = self.feed.shapes[
+                    (self.feed.shapes.shape_id == shape_id) &
+                    (self.feed.shapes.agency_raw_name == agency_raw_name)
+                ].copy()
+                if len(shape_df) > 0:
+                    shape_pt_lat_min = shape_df['shape_pt_lat'].min() - 0.05
+                    shape_pt_lat_max = shape_df['shape_pt_lat'].max() + 0.05
+                    shape_pt_lon_min = shape_df['shape_pt_lon'].min() - 0.05
+                    shape_pt_lon_max = shape_df['shape_pt_lon'].max() + 0.05
+
+                    lon_list = [shape_pt_lon_min, shape_pt_lon_min, shape_pt_lon_max, shape_pt_lon_max]
+                    lat_list = [shape_pt_lat_min, shape_pt_lat_max, shape_pt_lat_max, shape_pt_lat_min]
+
+                    shape_polygon = Polygon(zip(lon_list, lat_list))
+
+                # get roadway links and nodes within bounding box
+                links_within_polygon_gdf = links_gdf[
+                    links_gdf.geometry.within(shape_polygon)
+                ].copy()
+                nodes_within_polygon_gdf = nodes_gdf[
+                    nodes_gdf['shst_node_id'].isin(
+                        links_within_polygon_gdf.fromIntersectionId.tolist() + 
+                        links_within_polygon_gdf.toIntersectionId.tolist()
+                    )
+                ].copy()
+
                 # get the stops on the trip
                 trip_stops_df = stop_time_df[
                     (stop_time_df["trip_id"] == trip_id)
@@ -1032,23 +1062,23 @@ class Transit(object):
                 good_links_list = self.get_good_link_for_trip(trip_stops_df)
 
                 # update link weights
-                links_gdf["length_weighted"] = np.where(
-                    links_gdf.shstReferenceId.isin(good_links_list),
-                    links_gdf["length"],
-                    links_gdf["length"] * non_good_links_penalty,
+                links_within_polygon_gdf["length_weighted"] = np.where(
+                    links_within_polygon_gdf.shstReferenceId.isin(good_links_list),
+                    links_within_polygon_gdf["length"],
+                    links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
                 # apply ft penalty
-                links_gdf["ft_penalty"] = links_gdf["roadway"].map(ft_penalty)
-                links_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
 
-                links_gdf["length_weighted"] = (
-                    links_gdf["length_weighted"] * links_gdf["ft_penalty"]
+                links_within_polygon_gdf["length_weighted"] = (
+                    links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
                 )
 
                 # update graph
 
-                G_trip = ox_graph(nodes_gdf, links_gdf)
+                G_trip = ox_graph(nodes_within_polygon_gdf, links_within_polygon_gdf)
 
                 trip_stops_df.sort_values(by=["stop_sequence"], inplace=True)
 
