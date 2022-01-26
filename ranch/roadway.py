@@ -706,23 +706,25 @@ class Roadway(object):
             non_unique_AB_links_df.shstReferenceId > 1
         ]
 
+        links_columns = [
+            "u",
+            "v",
+            "highway",
+            "roadway",
+            "drive_access",
+            "bike_access",
+            "walk_access",
+            "length",
+            "wayId",
+            "shstGeometryId",
+            "shstReferenceId",
+            "geometry",
+        ]
+
         non_unique_AB_links_df = pd.merge(
             non_unique_AB_links_df[["u", "v"]],
             self.links_df[
-                [
-                    "u",
-                    "v",
-                    "highway",
-                    "roadway",
-                    "drive_access",
-                    "bike_access",
-                    "walk_access",
-                    "length",
-                    "wayId",
-                    "shstGeometryId",
-                    "shstReferenceId",
-                    "geometry",
-                ]
+                [c for c in self.links_df.columns if c in links_columns]
             ],
             how="left",
             on=["u", "v"],
