@@ -404,7 +404,7 @@ def test_create_rail(request):
     transit_network.get_representative_trip_for_route()
     RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
 
-    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
+    transit_network.route_rail_trip()
     print(transit_network.roadway_network.links_df.info())
     transit_network.create_shape_node_table()
 
@@ -414,12 +414,12 @@ def test_create_rail(request):
         path = 'D:/github/Ranch/tests/scratch/test_rail'
     )
 
-    print(unique_rail_links_gdf)
-    print(unique_rail_links_gdf.sort_values(by = ['from_stop_id', 'to_stop_id']))
-    print(len(unique_rail_links_gdf.groupby(['from_stop_id', 'to_stop_id']).count()))
-    print(unique_rail_nodes_gdf)
-    print(unique_rail_nodes_gdf.stop_id.nunique())
-    print(len(unique_rail_nodes_gdf.groupby(['shape_pt_lat', 'shape_pt_lon', 'stop_id']).count()))
+    print(transit_network.unique_rail_links_gdf)
+    print(transit_network.unique_rail_links_gdf.sort_values(by = ['from_stop_id', 'to_stop_id']))
+    print(len(transit_network.unique_rail_links_gdf.groupby(['from_stop_id', 'to_stop_id']).count()))
+    print(transit_network.unique_rail_nodes_gdf)
+    print(transit_network.unique_rail_nodes_gdf.stop_id.nunique())
+    print(len(transit_network.unique_rail_nodes_gdf.groupby(['shape_pt_lat', 'shape_pt_lon', 'stop_id']).count()))
 
     print(transit_network.rail_stops)
     print(transit_network.rail_trip_link_df)
@@ -456,7 +456,7 @@ def test_create_rail_and_bus(request):
         transit_network.bus_trip_link_df, 
         crs = roadway_network.links_df.crs)
 
-    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
+    transit_network.route_rail_trip()
 
     transit_network.create_shape_node_table()
 
