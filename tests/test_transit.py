@@ -385,7 +385,7 @@ def test_write_standard_transit(request):
 
     transit_network.write_standard_transit()
 
-#@pytest.mark.menow
+@pytest.mark.menow
 @pytest.mark.travis
 def test_create_rail(request):
     """
@@ -394,24 +394,20 @@ def test_create_rail(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "BART"),
         roadway_network= roadway_network,
         parameters=parameters
     )
 
     RanchLogger.info("transit feed has {} routes, they are {}".format(transit_network.feed.routes.route_id.nunique(), transit_network.feed.routes.route_short_name.unique()))
 
-    transit_network.get_representative_trip_for_route()
-    RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
-
-    transit_network.route_rail_trip()
-    print(transit_network.roadway_network.links_df.info())
-    transit_network.create_shape_node_table()
-
-    transit_network.create_freq_table()
+    transit_network.build_standard_transit_network(
+        multithread_shortest_path=False, 
+        multithread_shst_match=True
+    )
 
     transit_network.write_standard_transit(
-        path = 'D:/github/Ranch/tests/scratch/test_rail'
+        path = 'D:/github/Ranch/tests/scratch/test_BART'
     )
 
     print(transit_network.unique_rail_links_gdf)

@@ -1246,88 +1246,89 @@ class Transit(object):
 
         self._match_gtfs_shapes_to_shst(path, multithread_shst_match)
 
-        self.trip_shst_link_df = pd.merge(
-            self.trip_shst_link_df.drop(["geometry"], axis=1),
-            self.roadway_network.links_df[
-                [
-                    "shstReferenceId",
-                    "wayId",
-                    "u",
-                    "v",
-                    "fromIntersectionId",
-                    "toIntersectionId",
-                    "geometry",
-                ]
-            ],
-            how="left",
-            on="shstReferenceId",
-        )
-
-        self.trip_shst_link_df["u"] = (
-            self.trip_shst_link_df["u"].fillna(0).astype(np.int64)
-        )
-        self.trip_shst_link_df["v"] = (
-            self.trip_shst_link_df["v"].fillna(0).astype(np.int64)
-        )
-
-        trip_shst_link_df = self.trip_shst_link_df.copy()
-
-        trip_shst_link_df["next_agency_raw_name"] = (
-            trip_shst_link_df["agency_raw_name"]
-            .iloc[1:]
-            .append(pd.Series(trip_shst_link_df["agency_raw_name"].iloc[-1]))
-            .reset_index(drop=True)
-        )
-
-        trip_shst_link_df["next_shape_id"] = (
-            trip_shst_link_df["shape_id"]
-            .iloc[1:]
-            .append(pd.Series(trip_shst_link_df["shape_id"].iloc[-1]))
-            .reset_index(drop=True)
-        )
-
-        trip_shst_link_df["next_u"] = (
-            trip_shst_link_df["u"]
-            .iloc[1:]
-            .append(pd.Series(trip_shst_link_df["v"].iloc[-1]))
-            .reset_index(drop=True)
-        )
-
-        incomplete_trip_shst_link_df = trip_shst_link_df[
-            (
-                trip_shst_link_df.agency_raw_name
-                == trip_shst_link_df.next_agency_raw_name
+        if len(self.trip_shst_link_df) > 0:
+            self.trip_shst_link_df = pd.merge(
+                self.trip_shst_link_df.drop(["geometry"], axis=1),
+                self.roadway_network.links_df[
+                    [
+                        "shstReferenceId",
+                        "wayId",
+                        "u",
+                        "v",
+                        "fromIntersectionId",
+                        "toIntersectionId",
+                        "geometry",
+                    ]
+                ],
+                how="left",
+                on="shstReferenceId",
             )
-            & (trip_shst_link_df.shape_id == trip_shst_link_df.next_shape_id)
-            & (trip_shst_link_df.v != trip_shst_link_df.next_u)
-        ].copy()
 
-        incomplete_trip_shst_link_df["agency_shape_id"] = (
-            incomplete_trip_shst_link_df["agency_raw_name"]
-            + "_"
-            + incomplete_trip_shst_link_df["shape_id"].astype(str)
-        )
+            self.trip_shst_link_df["u"] = (
+                self.trip_shst_link_df["u"].fillna(0).astype(np.int64)
+            )
+            self.trip_shst_link_df["v"] = (
+                self.trip_shst_link_df["v"].fillna(0).astype(np.int64)
+            )
 
-        self.trip_shst_link_df["agency_shape_id"] = (
-            self.trip_shst_link_df["agency_raw_name"]
-            + "_"
-            + self.trip_shst_link_df["shape_id"].astype(str)
-        )
+            trip_shst_link_df = self.trip_shst_link_df.copy()
 
-        self.trip_shst_link_df = self.trip_shst_link_df[
-            ~(
-                self.trip_shst_link_df.agency_shape_id.isin(
-                    incomplete_trip_shst_link_df.agency_shape_id.unique()
+            trip_shst_link_df["next_agency_raw_name"] = (
+                trip_shst_link_df["agency_raw_name"]
+                .iloc[1:]
+                .append(pd.Series(trip_shst_link_df["agency_raw_name"].iloc[-1]))
+                .reset_index(drop=True)
+            )
+
+            trip_shst_link_df["next_shape_id"] = (
+                trip_shst_link_df["shape_id"]
+                .iloc[1:]
+                .append(pd.Series(trip_shst_link_df["shape_id"].iloc[-1]))
+                .reset_index(drop=True)
+            )
+
+            trip_shst_link_df["next_u"] = (
+                trip_shst_link_df["u"]
+                .iloc[1:]
+                .append(pd.Series(trip_shst_link_df["v"].iloc[-1]))
+                .reset_index(drop=True)
+            )
+
+            incomplete_trip_shst_link_df = trip_shst_link_df[
+                (
+                    trip_shst_link_df.agency_raw_name
+                    == trip_shst_link_df.next_agency_raw_name
                 )
-            )
-        ]
+                & (trip_shst_link_df.shape_id == trip_shst_link_df.next_shape_id)
+                & (trip_shst_link_df.v != trip_shst_link_df.next_u)
+            ].copy()
 
-        self.trip_shst_link_df = pd.merge(
-            self.trip_shst_link_df,
-            self.feed.trips[["agency_raw_name", "trip_id", "shape_id"]],
-            how="left",
-            on=["agency_raw_name", "shape_id"],
-        )
+            incomplete_trip_shst_link_df["agency_shape_id"] = (
+                incomplete_trip_shst_link_df["agency_raw_name"]
+                + "_"
+                + incomplete_trip_shst_link_df["shape_id"].astype(str)
+            )
+
+            self.trip_shst_link_df["agency_shape_id"] = (
+                self.trip_shst_link_df["agency_raw_name"]
+                + "_"
+                + self.trip_shst_link_df["shape_id"].astype(str)
+            )
+
+            self.trip_shst_link_df = self.trip_shst_link_df[
+                ~(
+                    self.trip_shst_link_df.agency_shape_id.isin(
+                        incomplete_trip_shst_link_df.agency_shape_id.unique()
+                    )
+                )
+            ]
+
+            self.trip_shst_link_df = pd.merge(
+                self.trip_shst_link_df,
+                self.feed.trips[["agency_raw_name", "trip_id", "shape_id"]],
+                how="left",
+                on=["agency_raw_name", "shape_id"],
+            )
 
     def _match_gtfs_shapes_to_shst(
         self,
