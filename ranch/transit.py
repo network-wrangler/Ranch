@@ -309,7 +309,7 @@ class Transit(object):
 
         if len(feed.shapes) == 0:  # ACE, CCTA, VINE
 
-            RanchLogger("missing shapes.txt for {}".format(agency_gtfs_name))
+            RanchLogger.info("missing shapes.txt for {}".format(agency_gtfs_name))
 
             group_df = (
                 feed.trips.groupby(["route_id", "direction_id"])["trip_id"]
@@ -327,7 +327,7 @@ class Transit(object):
                 )
 
         if len(feed.trips[feed.trips.shape_id.isnull()]) > 0:
-            RanchLogger("partial complete shape_id for {}".format(agency_gtfs_name))
+            RanchLogger.info("partial complete shape_id for {}".format(agency_gtfs_name))
 
             trips_missing_shape_df = feed.trips[feed.trips.shape_id.isnull()].copy()
 
