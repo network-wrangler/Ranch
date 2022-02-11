@@ -319,15 +319,19 @@ class Transit(object):
             )
 
             group_df["shape_id"] = range(1, len(group_df) + 1)
+            group_df["shape_id"] = group_df["shape_id"].astype(str)
 
             if "shape_id" in feed.trips.columns:
                 feed.trips.drop("shape_id", axis=1, inplace=True)
-                feed.trips = pd.merge(
-                    feed.trips, group_df, how="left", on=["route_id", "direction_id"]
-                )
+
+            join_df = pd.merge(
+                feed.trips, group_df, how="left", on=["route_id", "direction_id"]
+            )
+
+            feed.trips['shape_id'] = join_df['shape_id']
 
         if len(feed.trips[feed.trips.shape_id.isnull()]) > 0:
-            RanchLogger.info("partial complete shape_id for {}".format(agency_gtfs_name))
+            RanchLogger.info("missing shape_ids in trips.txt for {}".format(agency_gtfs_name))
 
             trips_missing_shape_df = feed.trips[feed.trips.shape_id.isnull()].copy()
 
@@ -349,10 +353,14 @@ class Transit(object):
                 on=["route_id", "direction_id"],
             )
 
-            feed.trips = pd.concat(
-                [feed.trips[feed.trips.shape_id.notnull()], trips_missing_shape_df],
-                ignore_index=True,
-                sort=False,
+            new_shape_id_dict = dict(
+                zip(trips_missing_shape_df.trip_id,trips_missing_shape_df.shape_id)
+            )
+            
+            feed.trips['shape_id'] = np.where(
+                feed.trips.shape_id.isnull(),
+                feed.trips.trip_id.map(new_shape_id_dict),
+                feed.trips.shape_id
             )
 
         return feed
