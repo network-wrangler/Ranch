@@ -558,7 +558,7 @@ class Transit(object):
             Point(xy) for xy in zip(stop_df["stop_lon"], stop_df["stop_lat"])
         ]
         stop_df = gpd.GeoDataFrame(
-            stop_df, geometry=stop_df["geometry"], crs=node_candidates_for_stops_df.crs
+            stop_df, geometry=stop_df["geometry"], crs=self.parameters.standard_crs
         )
 
         stop_to_node_gdf = find_closest_node(
@@ -706,6 +706,27 @@ class Transit(object):
 
                     lon_list = [shape_pt_lon_min, shape_pt_lon_min, shape_pt_lon_max, shape_pt_lon_max]
                     lat_list = [shape_pt_lat_min, shape_pt_lat_max, shape_pt_lat_max, shape_pt_lat_min]
+
+                    shape_polygon = Polygon(zip(lon_list, lat_list))
+                else:
+                    stop_times_df = self.feed.stop_times[
+                        (self.feed.stop_times.trip_id == trip_id) &
+                        (self.feed.stop_times.agency_raw_name == agency_raw_name)
+                    ].copy()
+                    stop_times_df = pd.merge(
+                        stop_times_df,
+                        self.feed.stops[['stop_lat', 'stop_lon', 'stop_id', 'agency_raw_name']],
+                        how = 'left',
+                        on = ['stop_id', 'agency_raw_name']
+                    )
+
+                    stop_pt_lat_min = stop_times_df['stop_lat'].min() - 0.05
+                    stop_pt_lat_max = stop_times_df['stop_lat'].max() + 0.05
+                    stop_pt_lon_min = stop_times_df['stop_lon'].min() - 0.05
+                    stop_pt_lon_max = stop_times_df['stop_lon'].max() + 0.05
+
+                    lon_list = [stop_pt_lon_min, stop_pt_lon_min, stop_pt_lon_max, stop_pt_lon_max]
+                    lat_list = [stop_pt_lat_min, stop_pt_lat_max, stop_pt_lat_max, stop_pt_lat_min]
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
@@ -1076,6 +1097,27 @@ class Transit(object):
                     lat_list = [shape_pt_lat_min, shape_pt_lat_max, shape_pt_lat_max, shape_pt_lat_min]
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
+                else:
+                    stop_times_df = self.feed.stop_times[
+                        (self.feed.stop_times.trip_id == trip_id) &
+                        (self.feed.stop_times.agency_raw_name == agency_raw_name)
+                    ].copy()
+                    stop_times_df = pd.merge(
+                        stop_times_df,
+                        self.feed.stops[['stop_lat', 'stop_lon', 'stop_id', 'agency_raw_name']],
+                        how = 'left',
+                        on = ['stop_id', 'agency_raw_name']
+                    )
+
+                    stop_pt_lat_min = stop_times_df['stop_lat'].min() - 0.05
+                    stop_pt_lat_max = stop_times_df['stop_lat'].max() + 0.05
+                    stop_pt_lon_min = stop_times_df['stop_lon'].min() - 0.05
+                    stop_pt_lon_max = stop_times_df['stop_lon'].max() + 0.05
+
+                    lon_list = [stop_pt_lon_min, stop_pt_lon_min, stop_pt_lon_max, stop_pt_lon_max]
+                    lat_list = [stop_pt_lat_min, stop_pt_lat_max, stop_pt_lat_max, stop_pt_lat_min]
+
+                    shape_polygon = Polygon(zip(lon_list, lat_list))
 
                 # get roadway links and nodes within bounding box
                 links_within_polygon_gdf = links_gdf[
@@ -1272,71 +1314,80 @@ class Transit(object):
                 on="shstReferenceId",
             )
 
-            self.trip_shst_link_df["u"] = (
-                self.trip_shst_link_df["u"].fillna(0).astype(np.int64)
-            )
-            self.trip_shst_link_df["v"] = (
-                self.trip_shst_link_df["v"].fillna(0).astype(np.int64)
-            )
-
-            trip_shst_link_df = self.trip_shst_link_df.copy()
-
-            trip_shst_link_df["next_agency_raw_name"] = (
-                trip_shst_link_df["agency_raw_name"]
-                .iloc[1:]
-                .append(pd.Series(trip_shst_link_df["agency_raw_name"].iloc[-1]))
-                .reset_index(drop=True)
-            )
-
-            trip_shst_link_df["next_shape_id"] = (
-                trip_shst_link_df["shape_id"]
-                .iloc[1:]
-                .append(pd.Series(trip_shst_link_df["shape_id"].iloc[-1]))
-                .reset_index(drop=True)
-            )
-
-            trip_shst_link_df["next_u"] = (
-                trip_shst_link_df["u"]
-                .iloc[1:]
-                .append(pd.Series(trip_shst_link_df["v"].iloc[-1]))
-                .reset_index(drop=True)
-            )
-
-            incomplete_trip_shst_link_df = trip_shst_link_df[
-                (
-                    trip_shst_link_df.agency_raw_name
-                    == trip_shst_link_df.next_agency_raw_name
-                )
-                & (trip_shst_link_df.shape_id == trip_shst_link_df.next_shape_id)
-                & (trip_shst_link_df.v != trip_shst_link_df.next_u)
-            ].copy()
-
-            incomplete_trip_shst_link_df["agency_shape_id"] = (
-                incomplete_trip_shst_link_df["agency_raw_name"]
-                + "_"
-                + incomplete_trip_shst_link_df["shape_id"].astype(str)
-            )
-
-            self.trip_shst_link_df["agency_shape_id"] = (
-                self.trip_shst_link_df["agency_raw_name"]
-                + "_"
-                + self.trip_shst_link_df["shape_id"].astype(str)
-            )
-
+            # if GTFS has transit that is outside of the network region
+            # there will be no roadway link joined, drop those records
             self.trip_shst_link_df = self.trip_shst_link_df[
-                ~(
-                    self.trip_shst_link_df.agency_shape_id.isin(
-                        incomplete_trip_shst_link_df.agency_shape_id.unique()
-                    )
-                )
+                (self.trip_shst_link_df["u"].notnull()) &
+                (self.trip_shst_link_df["v"].notnull())
             ]
 
-            self.trip_shst_link_df = pd.merge(
-                self.trip_shst_link_df,
-                self.feed.trips[["agency_raw_name", "trip_id", "shape_id"]],
-                how="left",
-                on=["agency_raw_name", "shape_id"],
-            )
+            if len(self.trip_shst_link_df) > 0:
+
+                self.trip_shst_link_df["u"] = (
+                    self.trip_shst_link_df["u"].fillna(0).astype(np.int64)
+                )
+                self.trip_shst_link_df["v"] = (
+                    self.trip_shst_link_df["v"].fillna(0).astype(np.int64)
+                )
+
+                trip_shst_link_df = self.trip_shst_link_df.copy()
+
+                trip_shst_link_df["next_agency_raw_name"] = (
+                    trip_shst_link_df["agency_raw_name"]
+                    .iloc[1:]
+                    .append(pd.Series(trip_shst_link_df["agency_raw_name"].iloc[-1]))
+                    .reset_index(drop=True)
+                )
+
+                trip_shst_link_df["next_shape_id"] = (
+                    trip_shst_link_df["shape_id"]
+                    .iloc[1:]
+                    .append(pd.Series(trip_shst_link_df["shape_id"].iloc[-1]))
+                    .reset_index(drop=True)
+                )
+
+                trip_shst_link_df["next_u"] = (
+                    trip_shst_link_df["u"]
+                    .iloc[1:]
+                    .append(pd.Series(trip_shst_link_df["v"].iloc[-1]))
+                    .reset_index(drop=True)
+                )
+
+                incomplete_trip_shst_link_df = trip_shst_link_df[
+                    (
+                        trip_shst_link_df.agency_raw_name
+                        == trip_shst_link_df.next_agency_raw_name
+                    )
+                    & (trip_shst_link_df.shape_id == trip_shst_link_df.next_shape_id)
+                    & (trip_shst_link_df.v != trip_shst_link_df.next_u)
+                ].copy()
+
+                incomplete_trip_shst_link_df["agency_shape_id"] = (
+                    incomplete_trip_shst_link_df["agency_raw_name"]
+                    + "_"
+                    + incomplete_trip_shst_link_df["shape_id"].astype(str)
+                )
+
+                self.trip_shst_link_df["agency_shape_id"] = (
+                    self.trip_shst_link_df["agency_raw_name"]
+                    + "_"
+                    + self.trip_shst_link_df["shape_id"].astype(str)
+                )
+
+                self.trip_shst_link_df = self.trip_shst_link_df[
+                    ~(
+                        self.trip_shst_link_df.agency_shape_id.isin(
+                            incomplete_trip_shst_link_df.agency_shape_id.unique()
+                        )
+                    )
+                ]
+
+                self.trip_shst_link_df = pd.merge(
+                    self.trip_shst_link_df,
+                    self.feed.trips[["agency_raw_name", "trip_id", "shape_id"]],
+                    how="left",
+                    on=["agency_raw_name", "shape_id"],
+                )
 
     def _match_gtfs_shapes_to_shst(
         self,

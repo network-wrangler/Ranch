@@ -167,11 +167,11 @@ def find_closest_node(
     """
 
     # convert crs
-    node_df = node_df.to_crs(CRS('epsg:26915'))
+    node_df = node_df.to_crs(CRS('epsg:3857'))
     node_df['X'] = node_df['geometry'].apply(lambda p: p.x)
     node_df['Y'] = node_df['geometry'].apply(lambda p: p.y)
 
-    node_candidates_df = node_candidates_df.to_crs(CRS('epsg:26915'))
+    node_candidates_df = node_candidates_df.to_crs(CRS('epsg:3857'))
     node_candidates_df['X'] = node_candidates_df.geometry.map(lambda g:g.x)
     node_candidates_df['Y'] = node_candidates_df.geometry.map(lambda g:g.y)
 
@@ -529,7 +529,7 @@ def project_geometry(geometry, crs=None, to_crs=None, to_latlong=False):
         the projected geometry and its new CRS
     """
     if crs is None:
-        crs = {"init": "epsg:4326"}
+        crs = CRS("epsg:4326")
 
     gdf = gpd.GeoDataFrame(geometry=[geometry], crs=crs)
     gdf_proj = project_gdf(gdf, to_crs=to_crs, to_latlong=to_latlong)
@@ -564,7 +564,7 @@ def project_gdf(gdf, to_crs=None, to_latlong=False):
 
     # if to_latlong is True, project the gdf to latlong
     if to_latlong:
-        gdf_proj = gdf.to_crs({"init": "epsg:4326"})
+        gdf_proj = gdf.to_crs(CRS("epsg:4326"))
         # utils.log(f"Projected GeoDataFrame to {settings.default_crs}")
 
     # else if to_crs was passed-in, project gdf to this CRS
