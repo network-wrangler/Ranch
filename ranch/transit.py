@@ -1750,6 +1750,17 @@ class Transit(object):
             subset=["agency_raw_name", "shape_id", "stop_id"]
         )
 
+        # if gtfs has no shapes for rails, e.g. ACE
+        # use stop times as shapes
+        if len(rail_shape_df) == 0 :
+            rail_shape_df = rail_stop_times_df.copy()
+            rail_shape_df = rail_shape_df.rename(
+                columns = {
+                    'stop_lat':'shape_pt_lat',
+                    'stop_lon':'shape_pt_lon'
+                }
+            )
+
         rail_shape_stop_df = pd.DataFrame()
 
         # for each rail shape
