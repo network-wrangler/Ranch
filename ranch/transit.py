@@ -221,6 +221,8 @@ class Transit(object):
             )
             if len(self.bus_trip_link_df) > 0:
                 self.update_bus_stop_node()
+            else:
+                self.bus_trip_link_df = None
         else:
             RanchLogger.info('Feed does not have bus routes')
 
@@ -1970,7 +1972,7 @@ class Transit(object):
         """
         create complete node lists each transit traverses to replace the gtfs shape.txt
         """
-        if (self.bus_trip_link_df is not None) & (len(self.bus_trip_link_df) > 0):
+        if self.bus_trip_link_df is not None:
             bus_trip_link_df = self.bus_trip_link_df.copy()
             bus_trip_link_df['agency_trip_id'] = (
                 bus_trip_link_df['agency_raw_name'] + 
