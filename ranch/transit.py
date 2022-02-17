@@ -219,7 +219,8 @@ class Transit(object):
                 multithread_shst_match = multithread_shst_match, 
                 multithread_shortest_path = multithread_shortest_path
             )
-            self.update_bus_stop_node()
+            if len(self.bus_trip_link_df) > 0:
+                self.update_bus_stop_node()
         else:
             RanchLogger.info('Feed does not have bus routes')
 
@@ -1228,6 +1229,10 @@ class Transit(object):
                         path_osm_link_df, ignore_index=True, sort=False
                     )
 
+        if len(trip_osm_link_df) == 0:
+            self.trip_osm_link_df = trip_osm_link_df
+            return
+        
         # after routing all trips, join with the links
         trip_osm_link_df = pd.merge(
             trip_osm_link_df.drop("trip_id", axis=1),
@@ -1553,6 +1558,11 @@ class Transit(object):
             RanchLogger.info(
                 "shst matched 0 bus shapes, 0 bus trips"
             )
+
+        if len(self.trip_osm_link_df) == 0:
+            RanchLogger.info('in the remaining gtfs shapes, shorteset path method matched 0 bus shapes')
+            self.bus_trip_link_df = trip_shst_link_df
+            return
 
         # keep bus shapes in shortest path routing that are not in shst match
         trip_osm_link_df = self.trip_osm_link_df.copy()
@@ -1960,7 +1970,7 @@ class Transit(object):
         """
         create complete node lists each transit traverses to replace the gtfs shape.txt
         """
-        if self.bus_trip_link_df is not None:
+        if (self.bus_trip_link_df is not None) & (len(self.bus_trip_link_df) > 0):
             bus_trip_link_df = self.bus_trip_link_df.copy()
             bus_trip_link_df['agency_trip_id'] = (
                 bus_trip_link_df['agency_raw_name'] + 
@@ -2021,6 +2031,10 @@ class Transit(object):
 
         shape_point_df = gpd.GeoDataFrame()
 
+        if len(shape_link_df) == 0:
+            self.shape_point_df = shape_point_df
+            return
+
         for shape_id in shape_link_df.shape_id.unique():
             shape_df = shape_link_df[shape_link_df.shape_id == shape_id]
             point_df = pd.DataFrame(
@@ -2073,6 +2087,11 @@ class Transit(object):
             path = path
 
         shape_point_df = self.shape_point_df.copy()
+
+        if len(shape_point_df) == 0:
+            RanchLogger.info('None of the GTFS routes are built as standard transit network.')
+            return
+        
         trip_df = self.feed.trips.copy()
 
         trip_df = trip_df[
