@@ -29,7 +29,7 @@ TRANSIT_UNQIUE_SHAPE_ID = ["agency_raw_name", "shape_id"]
 def multiprocessing_shst_match(input_network_file):
     run_shst_match(
         input_network_file=input_network_file,
-        input_unqiue_id=TRANSIT_UNQIUE_SHAPE_ID,
+        input_unique_id=TRANSIT_UNQIUE_SHAPE_ID,
         custom_match_option="--follow-line-direction --tile-hierarchy=8",
     )
 
@@ -1470,7 +1470,7 @@ class Transit(object):
             for match_input_file in match_input_file_list:
                 run_shst_match(
                     input_network_file = match_input_file,
-                    input_unqiue_id = TRANSIT_UNQIUE_SHAPE_ID,
+                    input_unique_id = TRANSIT_UNQIUE_SHAPE_ID,
                     output_dir = path,
                     custom_match_option = '--follow-line-direction --tile-hierarchy=8'
                 )

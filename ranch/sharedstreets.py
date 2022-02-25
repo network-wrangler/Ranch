@@ -115,7 +115,7 @@ def run_shst_match(
     input_network_file: str,
     output_dir: Optional[str] = None,
     input_crs: Optional[CRS] = None,
-    input_unqiue_id: Optional[list] = None,
+    input_unique_id: Optional[list] = None,
     custom_match_option: Optional[str] = None,
 ):
 
@@ -162,7 +162,7 @@ def run_shst_match(
     network_gdf = network_gdf.to_crs(standard_crs)
 
     # check if input network has unique IDs
-    if input_unqiue_id:
+    if input_unique_id:
         filename = input_network_file
         filename = (
             os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
