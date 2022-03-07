@@ -310,12 +310,41 @@ class Transit(object):
             if "agency_id" in feed.agency.columns:
                 feed.agency["agency_id"] = feed.agency.agency_id.iloc[0]
 
-        if len(feed.shapes) == 0:  # ACE, CCTA, VINE
+        # check if shapes are missing in GTFS
+        if 'shape_id' not in feed.trips.columns:
+            feed.trips['shape_id'] = np.nan
+        
+        # prep data for creating missing shape ids based on stop patterns
+        # if the stop patterns are differnt, then assume the shapes are different
+        stop_times_df = feed.stop_times.copy()
+        trips_df = feed.trips.copy()
+
+        trip_stops_df = (
+            stop_times_df.groupby(
+                ['agency_raw_name', 'trip_id']
+            )['stop_id']
+            .agg(list)
+            .reset_index()
+        )
+        trip_stops_df.rename(
+            columns = {'stop_id' : 'stop_pattern'},
+            inplace = True
+        )
+        trip_stops_df['stop_pattern'] = trip_stops_df['stop_pattern'].str.join('-')
+
+        trips_df = pd.merge(
+            trips_df,
+            trip_stops_df[['agency_raw_name', 'trip_id', 'stop_pattern']],
+            how = 'left',
+            on = ['agency_raw_name', 'trip_id']
+        )
+
+        if (len(feed.shapes) == 0) and (len(feed.trips[feed.trips.shape_id.notnull()]) == 0):  # ACE, CCTA, VINE
 
             RanchLogger.info("missing shapes.txt for {}".format(agency_gtfs_name))
 
             group_df = (
-                feed.trips.groupby(["route_id", "direction_id"])["trip_id"]
+                trips_df.groupby(["agency_raw_name", "route_id", "direction_id", 'stop_pattern'])["trip_id"]
                 .first()
                 .reset_index()
                 .drop("trip_id", axis=1)
@@ -326,9 +355,17 @@ class Transit(object):
 
             if "shape_id" in feed.trips.columns:
                 feed.trips.drop("shape_id", axis=1, inplace=True)
+                trips_df.drop("shape_id", axis=1, inplace=True)
 
             join_df = pd.merge(
-                feed.trips, group_df, how="left", on=["route_id", "direction_id"]
+                trips_df, group_df, how="left", on=["agency_raw_name", "route_id", "direction_id", 'stop_pattern']
+            )
+
+            join_df = pd.merge(
+                feed.trips, 
+                join_df[["agency_raw_name", "route_id", "direction_id", 'trip_id', 'shape_id']], 
+                how="left", 
+                on=["agency_raw_name", "route_id", "direction_id", 'trip_id']
             )
 
             feed.trips['shape_id'] = join_df['shape_id']
@@ -336,10 +373,10 @@ class Transit(object):
         if len(feed.trips[feed.trips.shape_id.isnull()]) > 0:
             RanchLogger.info("missing shape_ids in trips.txt for {}".format(agency_gtfs_name))
 
-            trips_missing_shape_df = feed.trips[feed.trips.shape_id.isnull()].copy()
+            trips_missing_shape_df = trips_df[trips_df.shape_id.isnull()].copy()
 
             group_df = (
-                trips_missing_shape_df.groupby(["route_id", "direction_id"])["trip_id"]
+                trips_missing_shape_df.groupby(['agency_raw_name', "route_id", "direction_id", 'stop_pattern'])["trip_id"]
                 .first()
                 .reset_index()
                 .drop("trip_id", axis=1)
@@ -353,7 +390,7 @@ class Transit(object):
                 trips_missing_shape_df.drop("shape_id", axis=1),
                 group_df,
                 how="left",
-                on=["route_id", "direction_id"],
+                on=['agency_raw_name', "route_id", "direction_id", 'stop_pattern'],
             )
 
             new_shape_id_dict = dict(
@@ -486,13 +523,45 @@ class Transit(object):
             .apply(agg)
         )
 
+        # sort trips based on #stops on them
+        trip_stops_df = (
+            stop_times_df.groupby(
+                ['agency_raw_name', 'trip_id']
+            )['stop_sequence']
+            .count()
+            .to_frame()
+            .reset_index()
+        )
+        trip_stops_df.rename(
+            columns = {'stop_sequence' : 'number_of_stops'},
+            inplace = True
+        )
+        
         # retain the complete trip info of the represent trip only
         trip_df = pd.merge(
             trip_df,
             trip_freq_df.reset_index(),
             how="inner",
             on=["agency_raw_name", "route_id", "tod", "direction_id", "shape_id"],
-        ).drop_duplicates(["agency_raw_name", "route_id", "direction_id", "tod"])
+        )
+
+        trip_df = pd.merge(
+            trip_df,
+            trip_stops_df[['agency_raw_name', 'trip_id', 'number_of_stops']],
+            how="left",
+            on=["agency_raw_name", 'trip_id']
+        )
+
+        # keep the trip with the most stops
+        trip_df.sort_values(
+            by = ['agency_raw_name', 'route_id', 'shape_id', 'number_of_stops'],
+            ascending = [True, True, True, False]
+        )
+        
+        trip_df.drop_duplicates(
+            subset = ["agency_raw_name", "route_id", 'shape_id', "direction_id", "tod"],
+            inplace = True
+        )
 
         trip_EA_NT_df = pd.merge(
             trip_EA_NT_df,
@@ -1742,6 +1811,10 @@ class Transit(object):
             rail_shape_df.agency_shape_id.isin(rail_trip_df.agency_shape_id.tolist())
         ]
 
+        # for rails that have the same shape_id, but different stop patterns
+        # e.g. AM trip A-B-D vs MD trip A-C-D
+        # we need to get A-B-C-D to create rail links
+
         # get rail stop times
         rail_stop_times_df = pd.merge(
             self.feed.stop_times,
@@ -1762,16 +1835,42 @@ class Transit(object):
             subset=["agency_raw_name", "shape_id", "stop_id"]
         )
 
-        # if gtfs has no shapes for rails, e.g. ACE
+        # if gtfs has no or missing shapes for rails, e.g. ACE
         # use stop times as shapes
         if len(rail_shape_df) == 0 :
-            rail_shape_df = rail_stop_times_df.copy()
-            rail_shape_df = rail_shape_df.rename(
+            new_rail_shape_df = rail_stop_times_df.copy()
+            new_rail_shape_df = new_rail_shape_df.rename(
                 columns = {
                     'stop_lat':'shape_pt_lat',
                     'stop_lon':'shape_pt_lon'
                 }
             )
+            rail_shape_df = rail_shape_df.append(
+                new_rail_shape_df,
+                sort = False,
+                ignore_index = True
+            )
+        else:
+            shape_id_list = rail_trip_df.agency_shape_id.unique()
+            shape_id_not_in_shape_data = [
+                s for s in shape_id_list if s not in rail_shape_df.agency_shape_id.tolist()
+            ]
+            # if there are shapes not in the shape.txt
+            if len(shape_id_not_in_shape_data) > 0:
+                new_rail_shape_df = rail_stop_times_df[
+                    rail_stop_times_df.agency_shape_id.isin(shape_id_not_in_shape_data)
+                ].copy()
+                new_rail_shape_df = new_rail_shape_df.rename(
+                    columns = {
+                        'stop_lat':'shape_pt_lat',
+                        'stop_lon':'shape_pt_lon'
+                    }
+                )
+                rail_shape_df = rail_shape_df.append(
+                    new_rail_shape_df,
+                    sort = False,
+                    ignore_index = True
+                )
 
         rail_shape_stop_df = pd.DataFrame()
 
