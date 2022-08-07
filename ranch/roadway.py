@@ -927,17 +927,18 @@ class Roadway(object):
                     "Missing taz node file, will use input taz polygon centroid"
                 )
 
-                taz_polygon_gdf = gpd.sjoin(
-                    taz_polygon_gdf,
-                    self.county_gdf[['geometry', self.county_variable_name]],
-                    how = 'left',
-                    predicate = 'intersects'
-                )
+                if 'county' not in taz_polygon_gdf.columns:
+                    taz_polygon_gdf = gpd.sjoin(
+                        taz_polygon_gdf,
+                        self.county_gdf[['geometry', self.county_variable_name]],
+                        how = 'left',
+                        predicate = 'intersects'
+                    )
 
-                taz_polygon_gdf.rename(
-                    columns={self.county_variable_name: "county"}, inplace=True
-                )
-                taz_polygon_gdf["county"].fillna("external", inplace=True)
+                    taz_polygon_gdf.rename(
+                        columns={self.county_variable_name: "county"}, inplace=True
+                    )
+                    taz_polygon_gdf["county"].fillna("external", inplace=True)
 
                 taz_node_gdf = taz_polygon_gdf.copy()
                 taz_node_gdf["geometry"] = taz_node_gdf[
@@ -946,6 +947,12 @@ class Roadway(object):
 
             if "model_node_id" not in taz_node_gdf.columns:
                 self.assign_model_node_id_to_taz(taz_node_gdf)
+            else:
+                taz_node_gdf["drive_access"] = 1
+                taz_node_gdf["walk_access"] = 1
+                taz_node_gdf["bike_access"] = 1
+
+                self.taz_node_gdf = taz_node_gdf
 
             if build_taz_drive:
                 self.build_taz_drive_connector(taz_polygon_gdf)
