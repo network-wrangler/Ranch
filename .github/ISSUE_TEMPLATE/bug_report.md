@@ -1,38 +1,45 @@
 ---
-name: Bug report
+name: 🐛 Bug report
 about: Create a report to help us improve
-title: ''
-labels: ''
+title: "🐛 Bug: "
+labels: bug
 assignees: ''
-
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## Describe the bug
+<!--A clear and concise description of what the bug is or the error code you got. e.g. 
+```python 
+KeyError: 'Passing list-likes to .loc or [] with any missing labels is no longer supported, see https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#deprecate-loc-reindex-listlike'
+```
+-->
 
-**To Reproduce**
+Progress:
+
+- [ ] Sufficient information provided
+- [ ] Cause identified/found
+- [ ] Test developed/identified 
+- [ ] Approach determined 
+- [ ] Test passes
+
+## To Reproduce
 Steps to reproduce the behavior:
 1. Go to '...'
 2. Click on '....'
 3. Scroll down to '....'
 4. See error
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+### Failing tests
+- [ ] No applicable test failed, need to create.
+- [ ] other...specify
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+### Triggering line of code
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+### Thoughts on resolution
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+### Full stack trace
 
-**Additional context**
-Add any other context about the problem here.
+### Environment
+
+Operating system:
+Context (conda, jupyter, etc):
+Environment (e.g. output from `conda list`):
