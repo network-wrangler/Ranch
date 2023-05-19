@@ -12,6 +12,7 @@ from ranch import Parameters
 from ranch import roadway
 from ranch import transit
 from ranch.logger import RanchLogger
+from ranch import sharedstreets
 
 root_dir = os.path.join("D:/github/Ranch")
 parameters = Parameters(ranch_base_dir = root_dir)
@@ -31,7 +32,7 @@ def test_read_gtfs_feed(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -47,7 +48,7 @@ def test_get_representative_trip_for_route(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -70,7 +71,7 @@ def test_snap_stop_to_node(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -92,7 +93,7 @@ def test_route_bus_link_osmnx_from_start_to_end(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -135,7 +136,7 @@ def test_stops_far_from_routed_route(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -166,7 +167,7 @@ def test_route_bus_link_osmnx_between_stops(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -210,7 +211,7 @@ def test_match_gtfs_shapes_to_shst(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -232,7 +233,7 @@ def test_route_bus_trip(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -269,7 +270,7 @@ def test_update_bus_stop_node(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -304,7 +305,7 @@ def test_create_freq_table(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -329,7 +330,7 @@ def test_create_shape_node_table(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -358,7 +359,7 @@ def test_write_standard_transit(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2015"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -384,7 +385,7 @@ def test_write_standard_transit(request):
 
     transit_network.write_standard_transit()
 
-#@pytest.mark.menow
+@pytest.mark.menow
 @pytest.mark.travis
 def test_create_rail(request):
     """
@@ -393,32 +394,28 @@ def test_create_rail(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "BART"),
         roadway_network= roadway_network,
         parameters=parameters
     )
 
     RanchLogger.info("transit feed has {} routes, they are {}".format(transit_network.feed.routes.route_id.nunique(), transit_network.feed.routes.route_short_name.unique()))
 
-    transit_network.get_representative_trip_for_route()
-    RanchLogger.info("representative feed has {} trips".format(transit_network.feed.trips.trip_id.nunique()))
-
-    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
-    print(transit_network.roadway_network.links_df.info())
-    transit_network.create_shape_node_table()
-
-    transit_network.create_freq_table()
-
-    transit_network.write_standard_transit(
-        path = 'D:/github/Ranch/tests/scratch/test_rail'
+    transit_network.build_standard_transit_network(
+        multithread_shortest_path=False, 
+        multithread_shst_match=True
     )
 
-    print(unique_rail_links_gdf)
-    print(unique_rail_links_gdf.sort_values(by = ['from_stop_id', 'to_stop_id']))
-    print(len(unique_rail_links_gdf.groupby(['from_stop_id', 'to_stop_id']).count()))
-    print(unique_rail_nodes_gdf)
-    print(unique_rail_nodes_gdf.stop_id.nunique())
-    print(len(unique_rail_nodes_gdf.groupby(['shape_pt_lat', 'shape_pt_lon', 'stop_id']).count()))
+    transit_network.write_standard_transit(
+        path = 'D:/github/Ranch/tests/scratch/test_BART'
+    )
+
+    print(transit_network.unique_rail_links_gdf)
+    print(transit_network.unique_rail_links_gdf.sort_values(by = ['from_stop_id', 'to_stop_id']))
+    print(len(transit_network.unique_rail_links_gdf.groupby(['from_stop_id', 'to_stop_id']).count()))
+    print(transit_network.unique_rail_nodes_gdf)
+    print(transit_network.unique_rail_nodes_gdf.stop_id.nunique())
+    print(len(transit_network.unique_rail_nodes_gdf.groupby(['shape_pt_lat', 'shape_pt_lon', 'stop_id']).count()))
 
     print(transit_network.rail_stops)
     print(transit_network.rail_trip_link_df)
@@ -435,7 +432,7 @@ def test_create_rail_and_bus(request):
     print("\n--Starting:", request.node.name)
 
     transit_network = Transit.load_all_gtfs_feeds(
-        path = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
+        gtfs_dir = os.path.join(root_dir, "data", "external", "gtfs", "2019"),
         roadway_network= roadway_network,
         parameters=parameters
     )
@@ -455,12 +452,7 @@ def test_create_rail_and_bus(request):
         transit_network.bus_trip_link_df, 
         crs = roadway_network.links_df.crs)
 
-    bus_trip_link_df.to_file(
-        os.path.join('D:/github/Ranch/tests/scratch/test_2019', 'test_routing.geojson'),
-        driver = 'GeoJSON'
-    )
-
-    unique_rail_links_gdf, unique_rail_nodes_gdf = transit_network.route_rail_trip()
+    transit_network.route_rail_trip()
 
     transit_network.create_shape_node_table()
 
