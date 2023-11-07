@@ -134,4 +134,6 @@ class Parameters:
         # do not convert if alt_standard_crs
         self.alt_standard_crs = CRS("epsg:4269")
 
+        self.model_centroid_node_id_reserve = 3100
+
         self.__dict__.update(kwargs)

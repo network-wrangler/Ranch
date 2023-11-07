@@ -89,7 +89,7 @@ def _run_shst_extraction(
     client = docker.from_env()
 
     container = client.containers.run(
-        image="shst:latest",
+        image="shst-node12:latest",
         detach=True,
         volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
@@ -144,7 +144,11 @@ def run_shst_match(
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
             RanchLogger.debug("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
-
+            if file_extension == '.shp':
+                network_gdf.to_file(
+                    filename + '.geojson', driver = 'GeoJSON'
+                )
+                input_network_file = filename + '.geojson'
         else:
             msg = "Invalid network file, should be .shp or .geojson"
             RanchLogger.error(msg)
@@ -159,13 +163,18 @@ def run_shst_match(
         network_gdf.crs = standard_crs
 
     # convert to lat-long
-    network_gdf = network_gdf.to_crs(standard_crs)
+    if network_gdf.crs != standard_crs:
+        network_gdf = network_gdf.to_crs(alt_standard_crs)
+        network_gdf.to_file(input_network_file, driver = 'GeoJSON')
 
     # check if input network has unique IDs
     if input_unique_id:
         filename = input_network_file
         filename = (
             os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
+        )
+        network_gdf[network_gdf.geometry.notnull()][input_unique_id + ['geometry']].to_file(
+            os.path.join(output_dir, filename + ".geojson"), driver="GeoJSON"
         )
 
     # if not, create unique IDs
@@ -193,7 +202,7 @@ def run_shst_match(
             )
         )
 
-        network_gdf[["unique_id", "geometry"]].to_file(
+        network_gdf[network_gdf.geometry.notnull()][["unique_id", "geometry"]].to_file(
             os.path.join(output_dir, filename + ".geojson"), driver="GeoJSON"
         )
 
@@ -232,7 +241,7 @@ def _run_shst_match(
     client = docker.from_env()
 
     container = client.containers.run(
-        image="shst:latest",
+        image="shs:latest",
         detach=True,
         volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
@@ -296,7 +305,19 @@ def _extract_osm_link_from_shst_extraction(
     row: pd.Series,
     osm_from_shst_link_list: list,
 ):
-    link_df = DataFrame(row.get("metadata").get("osmMetadata").get("waySections"))
-    link_df["geometryId"] = row.get("metadata").get("geometryId")
+    if row.get("metadata") is not None:
+        link_df = DataFrame(row.get("metadata").get("osmMetadata").get("waySections"))
+        link_df["geometryId"] = row.get("metadata").get("geometryId")
 
-    osm_from_shst_link_list.append(link_df)
+        osm_from_shst_link_list.append(link_df)
+    else:
+        link_df = DataFrame([[row.get('id')]], columns = ['geometryId'])
+
+        #osm_from_shst_link_list.append(link_df)
+
+        RanchLogger.debug(
+            "record {} from {} does not have metadata".format(
+                row['id'],
+                row['source']
+            )
+        )
