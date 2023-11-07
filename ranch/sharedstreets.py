@@ -89,7 +89,7 @@ def _run_shst_extraction(
     client = docker.from_env()
 
     container = client.containers.run(
-        image="shst-node12:latest",
+        image="shst:latest",
         detach=True,
         volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
@@ -241,7 +241,7 @@ def _run_shst_match(
     client = docker.from_env()
 
     container = client.containers.run(
-        image="shs:latest",
+        image="shst:latest",
         detach=True,
         volumes={output_dir: {"bind": "/usr/node", "mode": "rw"}},
         tty=True,
