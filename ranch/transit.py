@@ -194,13 +194,14 @@ class Transit(object):
 
     def build_standard_transit_network(
         self,
+        num_most_pattern: int = 1,
         multithread_shst_match: bool = True,
         multithread_shortest_path: bool = False
     ):
         """
         one-call method for transit, instead of calling each sub-module
         """
-        self.get_representative_trip_for_route()
+        self.get_representative_trip_for_route(num_most_pattern)
         self.snap_stop_to_node()
 
         route_df = self.feed.routes.copy()
@@ -405,10 +406,13 @@ class Transit(object):
 
         return feed
 
-    def get_representative_trip_for_route(self):
+    def get_representative_trip_for_route(self, num_most_pattern = 1):
 
         """
         get the representative trips for each route, by direction, tod
+
+        Args:
+            num_most_pattern: number of N most frequent routing pattern to keep, default to 1
 
         """
 
@@ -453,50 +457,14 @@ class Transit(object):
 
         ## AM: 6-10am, MD: 10am-3pm, PM: 3-7pm, NT 7pm-3am, EA 3-6am
         trip_df["tod"] = np.where(
-            (trip_df["arrival_h"] >= model_time_period.get("AM").get("start"))
-            & (trip_df["arrival_h"] < model_time_period.get("AM").get("end")),
-            "AM",
+            (trip_df["arrival_h"] >= model_time_period.get("pk").get("start"))
+            & (trip_df["arrival_h"] < model_time_period.get("pk").get("end")),
+            "pk",
             np.where(
-                (trip_df["arrival_h"] >= model_time_period.get("MD").get("start"))
-                & (trip_df["arrival_h"] < model_time_period.get("MD").get("end")),
-                "MD",
-                np.where(
-                    (trip_df["arrival_h"] >= model_time_period.get("PM").get("start"))
-                    & (trip_df["arrival_h"] < model_time_period.get("PM").get("end")),
-                    "PM",
-                    np.where(
-                        (
-                            trip_df["arrival_h"]
-                            >= model_time_period.get("EA").get("start")
-                        )
-                        & (
-                            trip_df["arrival_h"]
-                            < model_time_period.get("EA").get("end")
-                        ),
-                        "EA",
-                        "NT",
-                    ),
-                ),
-            ),
-        )
-
-        # calculate frequency for EA and NT period using 5-6am, and 7-10pm
-        trip_EA_NT_df = trip_df.copy()
-        trip_EA_NT_df["tod"] = np.where(
-            (trip_df["arrival_h"] >= model_time_period.get("EA").get("frequency_start"))
-            & (trip_df["arrival_h"] < model_time_period.get("EA").get("frequency_end")),
-            "EA",
-            np.where(
-                (
-                    trip_df["arrival_h"]
-                    >= model_time_period.get("NT").get("frequency_start")
-                )
-                & (
-                    trip_df["arrival_h"]
-                    < model_time_period.get("NT").get("frequency_end")
-                ),
-                "NT",
-                "NA",
+                (trip_df["arrival_h"] >= model_time_period.get("op").get("start"))
+                & (trip_df["arrival_h"] < model_time_period.get("op").get("end")),
+                "op",
+                "other"
             ),
         )
 
@@ -511,17 +479,58 @@ class Transit(object):
             .to_frame()
         )
 
+        trip_freq_df.rename(
+            columns = {"trip_id" : "trip_num_for_shape"}, 
+            inplace = True
+        )
+
         ## then choose the most frequent shape_id for each route
         # for frequency use the total number of trips
         def agg(x):
-            m = x.shape_id.iloc[np.argmax(x.trip_id.values)]
-            return pd.Series({"trip_num": x.trip_id.sum(), "shape_id": m})
+            m = x.shape_id.iloc[np.argmax(x.trip_num_for_shape.values)]
+            return pd.Series({"trip_num": x.trip_num_for_shape.sum(), "shape_id": m})
 
-        trip_freq_df = (
-            trip_freq_df.reset_index()
-            .groupby(["agency_raw_name", "route_id", "tod", "direction_id"])
-            .apply(agg)
-        )
+        if num_most_pattern == 0:
+            trip_freq_df = (
+                trip_freq_df.reset_index()
+                .groupby(["agency_raw_name", "route_id", "tod", "direction_id"])
+                .apply(agg)
+            )
+        
+        else:
+            # keep the n most frequent pattern
+        
+            # calculate total number of trip per route by time and direction
+            trip_num_df = trip_freq_df.groupby(
+                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+            )["trip_num_for_shape"].sum().reset_index()
+            trip_num_df.rename(
+                columns = {"trip_num_for_shape" : "trip_num_total"}, 
+                inplace = True
+            )
+            # sort shape freuqncy table by number of trips per shape
+            trip_freq_df = trip_freq_df.sort_values(
+                by = ['agency_raw_name', 'route_id', 'tod', 'direction_id', "trip_num_for_shape"], 
+                ascending = False
+            )
+            # keep the N most frequent shape
+            trip_freq_df = trip_freq_df.groupby(
+                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+            ).head(num_most_pattern).reset_index()
+        
+            trip_freq_df = pd.merge(
+                trip_freq_df,#.drop("trip_id", axis = 1), 
+                trip_num_df, 
+                how = "left", 
+                on = ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+            )
+            
+            trip_freq_df["num_pattern"] = trip_freq_df.groupby(
+                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+            )["shape_id"].transform("count")
+            trip_freq_df["trip_num_N_most"] = trip_freq_df.groupby(
+                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+            )["trip_num_for_shape"].transform("sum")
 
         # sort trips based on #stops on them
         trip_stops_df = (
@@ -563,34 +572,8 @@ class Transit(object):
             inplace = True
         )
 
-        trip_EA_NT_df = pd.merge(
-            trip_EA_NT_df,
-            trip_freq_df.reset_index(),
-            how="inner",
-            on=["agency_raw_name", "route_id", "tod", "direction_id", "shape_id"],
-        )
-
-        trip_EA_NT_df = (
-            trip_EA_NT_df[trip_EA_NT_df.tod.isin(["EA", "NT"])]
-            .groupby(
-                ["agency_raw_name", "route_id", "tod", "direction_id", "shape_id"]
-            )["trip_id"]
-            .count()
-            .reset_index()
-        )
-
-        trip_EA_NT_df.rename(columns={"trip_id": "trip_num"}, inplace=True)
-
-        trip_df = pd.merge(
-            trip_df,
-            trip_EA_NT_df,
-            how="left",
-            on=["agency_raw_name", "route_id", "tod", "direction_id", "shape_id"],
-        )
-
-        trip_df["trip_num"] = np.where(
-            trip_df.trip_num_y.isnull(), trip_df.trip_num_x, trip_df.trip_num_y
-        )
+        # keep trips within the model time
+        trip_df = trip_df[trip_df['tod'].isin(model_time_period.keys())].copy()
 
         self.feed.trips = trip_df
 
@@ -725,7 +708,7 @@ class Transit(object):
 
         # keep the trip with most stops
         bus_trip_df.drop_duplicates(
-            subset=["agency_raw_name", "route_id", "shape_id"],
+            subset=["agency_raw_name", "shape_id"],
             keep="first",
             inplace=True,
         )
@@ -803,8 +786,10 @@ class Transit(object):
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
                 # get roadway links and nodes within bounding box
+                # exclude cycleway and footway
                 links_within_polygon_gdf = links_gdf[
-                    links_gdf.geometry.within(shape_polygon)
+                    (links_gdf.geometry.within(shape_polygon)) &
+                    (links_gdf.drive_access == 1)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -1192,8 +1177,10 @@ class Transit(object):
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
                 # get roadway links and nodes within bounding box
+                # exclude cycleway and footway
                 links_within_polygon_gdf = links_gdf[
-                    links_gdf.geometry.within(shape_polygon)
+                    (links_gdf.geometry.within(shape_polygon)) &
+                    (links_gdf.drive_access == 1)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -2053,11 +2040,12 @@ class Transit(object):
                 ) - model_time_period.get(key).get("frequency_start")
 
         freq_df = self.feed.trips[
-            ["agency_raw_name", "trip_id", "tod", "direction_id", "trip_num"]
+            ["agency_raw_name", "trip_id", "tod", "direction_id", "trip_num_for_shape", "trip_num_total", "trip_num_N_most"]
         ].copy()
         freq_df["headway_secs"] = freq_df.tod.map(tod_numhours_dict)
         freq_df["headway_secs"] = freq_df.apply(
-            lambda x: int(x.headway_secs * 60 * 60 / x.trip_num), axis=1
+            lambda x: int(x.headway_secs * 60 * 60 / (x.trip_num_for_shape / x.trip_num_N_most * x.trip_num_total)), 
+            axis=1
         )
 
         model_time_enum_list = self.parameters.model_time_enum_list
@@ -2314,30 +2302,32 @@ class Transit(object):
 
         # add columns to unique_rail_links_gdf
         self.unique_rail_links_gdf['rail_only'] = 1
-        self.unique_rail_links_gdf = pd.merge(
-            self.unique_rail_links_gdf,
-            self.unique_rail_nodes_gdf[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
-                columns = {'stop_id' : 'from_stop_id'}
-            ),
-            how = 'left',
-            on = ['agency_raw_name', 'from_stop_id']
-        )
-        self.unique_rail_links_gdf.rename(
-            columns = {'shst_node_id' : 'fromIntersectionId'},
-            inplace = True
-        )
-        self.unique_rail_links_gdf = pd.merge(
-            self.unique_rail_links_gdf,
-            self.unique_rail_nodes_gdf[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
-                columns = {'stop_id' : 'to_stop_id'}
-            ),
-            how = 'left',
-            on = ['agency_raw_name', 'to_stop_id']
-        )
-        self.unique_rail_links_gdf.rename(
-            columns = {'shst_node_id' : 'toIntersectionId'},
-            inplace = True
-        )
+        if 'fromIntersectionId' not in self.unique_rail_links_gdf.columns:
+            self.unique_rail_links_gdf = pd.merge(
+                self.unique_rail_links_gdf,
+                self.unique_rail_nodes_gdf[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
+                    columns = {'stop_id' : 'from_stop_id'}
+                ),
+                how = 'left',
+                on = ['agency_raw_name', 'from_stop_id']
+            )
+            self.unique_rail_links_gdf.rename(
+                columns = {'shst_node_id' : 'fromIntersectionId'},
+                inplace = True
+            )
+        if 'toIntersectionId' not in self.unique_rail_links_gdf.columns:
+            self.unique_rail_links_gdf = pd.merge(
+                self.unique_rail_links_gdf,
+                self.unique_rail_nodes_gdf[['agency_raw_name', 'stop_id', 'shst_node_id']].rename(
+                    columns = {'stop_id' : 'to_stop_id'}
+                ),
+                how = 'left',
+                on = ['agency_raw_name', 'to_stop_id']
+            )
+            self.unique_rail_links_gdf.rename(
+                columns = {'shst_node_id' : 'toIntersectionId'},
+                inplace = True
+            )
 
         # write out
         self.unique_rail_links_gdf.to_file(
