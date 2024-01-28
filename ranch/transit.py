@@ -626,17 +626,26 @@ class Transit(object):
         RanchLogger.info('Snapping gtfs stops to roadway node...')
 
         # get rid of motorway nodes
-        non_motorway_links_df = self.roadway_network.links_df[
-            ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
+        motorway_links_df = self.roadway_network.links_df[
+            self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link'])
         ].copy()
+        motorway_nodes_list = motorway_links_df.fromIntersectionId.tolist() + motorway_links_df.toIntersectionId.tolist()
+
+        ag100plus_links_df = self.roadway_network.links_df[
+            self.roadway_network.links_df.assign_group>=100
+        ].copy()
+        ag100plus_nodes_list = ag100plus_links_df.fromIntersectionId.tolist() + ag100plus_links_df.toIntersectionId.tolist()
+
+        bus_only_links_df = self.roadway_network.links_df[
+            self.roadway_network.links_df.bus_only==1
+        ].copy()
+        bus_only_nodes_list = bus_only_links_df.fromIntersectionId.tolist() + bus_only_links_df.toIntersectionId.tolist()
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
             (
-                self.roadway_network.nodes_df.shst_node_id.isin(
-                    non_motorway_links_df.fromIntersectionId.tolist()
-                    + non_motorway_links_df.toIntersectionId.tolist()
-                )
-                & (self.roadway_network.nodes_df.drive_access == 1)
+                ((~self.roadway_network.nodes_df.shst_node_id.isin(motorway_nodes_list + ag100plus_nodes_list)) &
+                (self.roadway_network.nodes_df.drive_access == 1)) | 
+                (self.roadway_network.nodes_df.shst_node_id.isin(bus_only_nodes_list))
             )
         ].copy()
 
@@ -669,6 +678,7 @@ class Transit(object):
         self,
         good_links_buffer_radius: Optional[float] = None,
         ft_penalty: Optional[Dict] = None,
+        ft_penalty_suburban: Optional[Dict] = None,
         non_good_links_penalty: Optional[float] = None,
     ):
 
@@ -686,6 +696,11 @@ class Transit(object):
             ft_penalty = ft_penalty
         else:
             ft_penalty = self.parameters.transit_routing_parameters.get("ft_penalty")
+
+        if ft_penalty_suburban:
+            ft_penalty_suburban = ft_penalty_suburban
+        else:
+            ft_penalty_suburban = self.parameters.transit_routing_parameters_suburban.get("ft_penalty")  
 
         if non_good_links_penalty:
             non_good_links_penalty = non_good_links_penalty
@@ -822,7 +837,10 @@ class Transit(object):
                 links_within_polygon_gdf = links_gdf[
                     (links_gdf.geometry.within(shape_polygon)) &
                     ((links_gdf.drive_access == 1)|
-                    (links_gdf.bus_only == 1))
+                    (links_gdf.drive_access == "1")|
+                    (links_gdf.bus_only == 1)|
+                    (links_gdf.bus_only == "1")) 
+                    & (links_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -847,9 +865,26 @@ class Transit(object):
                     links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
+                route_long_name = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_long_name'].iloc[0]
+
+                route_id = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_id'].iloc[0]
+
+                if ("express" in str(route_long_name)) or (int(route_id) > 99):
+                    link_penalty = ft_penalty_suburban
+                else:
+                    link_penalty = ft_penalty
+
                 # apply ft penalty
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
+                # bus_only link
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"] * np.where(links_within_polygon_gdf["bus_only"] == 1, 0.5, 1)
 
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
@@ -970,8 +1005,11 @@ class Transit(object):
 
         # get drive links
         drive_links_df = self.roadway_network.links_df[
-            (self.roadway_network.links_df.drive_access == 1)|
-            (self.roadway_network.links_df.bus_only == 1)
+            ((self.roadway_network.links_df.drive_access == 1)|
+            (self.roadway_network.links_df.drive_access == "1")|
+            (self.roadway_network.links_df.bus_only == 1) |
+            (self.roadway_network.links_df.bus_only == "1")) 
+            & (self.roadway_network.links_df.assign_group<100)
         ].copy()
 
         # get the links that are within stop buffer
@@ -1112,6 +1150,7 @@ class Transit(object):
         self,
         good_links_buffer_radius: Optional[float] = None,
         ft_penalty: Optional[Dict] = None,
+        ft_penalty_suburban: Optional[Dict] = None,
         non_good_links_penalty: Optional[float] = None,
     ):
         """
@@ -1129,6 +1168,11 @@ class Transit(object):
             ft_penalty = ft_penalty
         else:
             ft_penalty = self.parameters.transit_routing_parameters.get("ft_penalty")
+
+        if ft_penalty_suburban:
+            ft_penalty_suburban = ft_penalty_suburban
+        else:
+            ft_penalty_suburban = self.parameters.transit_routing_parameters_suburban.get("ft_penalty")  
 
         if non_good_links_penalty:
             non_good_links_penalty = non_good_links_penalty
@@ -1155,6 +1199,11 @@ class Transit(object):
             self.trip_osm_link_df[['agency_raw_name', 'trip_id']].drop_duplicates(),
             how = 'inner',
             on = ['agency_raw_name', 'trip_id']
+        )
+
+        bus_trip_df = pd.merge(
+            bus_trip_df,
+            self.feed.routes[['route_id', "agency_raw_name",'route_long_name']], how="left", on=["agency_raw_name", "route_id"]
         )
 
         # output dataframe for osmnx success
@@ -1215,7 +1264,10 @@ class Transit(object):
                 links_within_polygon_gdf = links_gdf[
                     (links_gdf.geometry.within(shape_polygon)) &
                     ((links_gdf.drive_access == 1)|
-                    (links_gdf.bus_only == 1))
+                    (links_gdf.drive_access == "1")|
+                    (links_gdf.bus_only == 1)|
+                    (links_gdf.bus_only == "1")) 
+                    & (links_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -1240,9 +1292,26 @@ class Transit(object):
                     links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
+                route_long_name = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_long_name'].iloc[0]
+
+                route_id = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_id'].iloc[0]
+
+                if ("express" in str(route_long_name)) or (int(route_id) > 99):
+                    link_penalty = ft_penalty_suburban
+                else:
+                    link_penalty = ft_penalty
+
                 # apply ft penalty
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
+                # bus_only link
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"] * np.where(links_within_polygon_gdf["bus_only"] == 1, 0.5, 1)
 
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]

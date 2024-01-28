@@ -121,14 +121,30 @@ class Parameters:
         self.transit_routing_parameters = {
             "good_links_buffer_radius": 200,
             "non_good_links_penalty": 5,
-            "bad_stops_buffer_radius": 100,
+            "bad_stops_buffer_radius": 200,
             "ft_penalty": {
                 "residential": 2,
-                "service": 3,
+                "service": 2.5,
                 "default": 1,
-                "motorway": 0.9,
+                "motorway_link": 1.5,
+                "primary": 0.7,
+                "motorway": 0.7,
             },
         }
+
+        self.transit_routing_parameters_suburban = {
+            "good_links_buffer_radius": 200,
+            "non_good_links_penalty": 5,
+            "bad_stops_buffer_radius": 200,
+            "ft_penalty": {
+                "residential": 2,
+                "service": 2.5,
+                "default": 1,
+                "motorway_link": 0.7,
+                "motorway": 0.5
+            },
+        }
+
 
         self.standard_crs = CRS("epsg:4326")
         # do not convert if alt_standard_crs
