@@ -626,27 +626,18 @@ class Transit(object):
         RanchLogger.info('Snapping gtfs stops to roadway node...')
 
         # get rid of motorway nodes
-        motorway_links_df = self.roadway_network.links_df[
-            self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link'])
+        link_candidates_for_nodes_df = self.roadway_network.links_df[
+            (~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link']))
+            & (self.roadway_network.links_df.assign_group<100)
+            & ((self.roadway_network.links_df.drive_access==1) | (self.roadway_network.links_df.bus_only==1))
         ].copy()
-        motorway_nodes_list = motorway_links_df.fromIntersectionId.tolist() + motorway_links_df.toIntersectionId.tolist()
-
-        ag100plus_links_df = self.roadway_network.links_df[
-            self.roadway_network.links_df.assign_group>=100
-        ].copy()
-        ag100plus_nodes_list = ag100plus_links_df.fromIntersectionId.tolist() + ag100plus_links_df.toIntersectionId.tolist()
-
-        bus_only_links_df = self.roadway_network.links_df[
-            self.roadway_network.links_df.bus_only==1
-        ].copy()
-        bus_only_nodes_list = bus_only_links_df.fromIntersectionId.tolist() + bus_only_links_df.toIntersectionId.tolist()
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
-            (
-                ((~self.roadway_network.nodes_df.shst_node_id.isin(motorway_nodes_list + ag100plus_nodes_list)) &
-                (self.roadway_network.nodes_df.drive_access == 1)) | 
-                (self.roadway_network.nodes_df.shst_node_id.isin(bus_only_nodes_list))
+            (self.roadway_network.nodes_df.shst_node_id.isin(
+                link_candidates_for_nodes_df.fromIntersectionId.tolist()
+                + link_candidates_for_nodes_df.toIntersectionId.tolist())
             )
+            & (self.roadway_network.nodes_df.drive_access == 1)
         ].copy()
 
         stop_df = self.feed.stops.copy()
