@@ -627,17 +627,21 @@ class Transit(object):
 
         # get rid of motorway nodes
         link_candidates_for_nodes_df = self.roadway_network.links_df[
+            (
             (~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link']))
             & (self.roadway_network.links_df.assign_group<100)
-            & ((self.roadway_network.links_df.drive_access==1) | (self.roadway_network.links_df.bus_only==1))
+            & ((self.roadway_network.links_df.drive_access==1) | (self.roadway_network.links_df.drive_access=="1"))
+            )
+            | ((self.roadway_network.links_df.bus_only==1) | (self.roadway_network.links_df.bus_only=="1"))
         ].copy()
+
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
             (self.roadway_network.nodes_df.shst_node_id.isin(
                 link_candidates_for_nodes_df.fromIntersectionId.tolist()
                 + link_candidates_for_nodes_df.toIntersectionId.tolist())
             )
-            & (self.roadway_network.nodes_df.drive_access == 1)
+            # & (self.roadway_network.nodes_df.drive_access == 1)
         ].copy()
 
         stop_df = self.feed.stops.copy()
@@ -875,7 +879,11 @@ class Transit(object):
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
                 links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
                 # bus_only link
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"] * np.where(links_within_polygon_gdf["bus_only"] == 1, 0.5, 1)
+                links_within_polygon_gdf["ft_penalty"] = (links_within_polygon_gdf["ft_penalty"] * np.where(
+                    ((links_within_polygon_gdf["bus_only"]==1) | (links_within_polygon_gdf["bus_only"]=="1")), 
+                    0.5, 
+                    1)
+                )
 
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
@@ -1302,8 +1310,11 @@ class Transit(object):
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
                 links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
                 # bus_only link
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"] * np.where(links_within_polygon_gdf["bus_only"] == 1, 0.5, 1)
-
+                links_within_polygon_gdf["ft_penalty"] = (links_within_polygon_gdf["ft_penalty"] * np.where(
+                    ((links_within_polygon_gdf["bus_only"]==1) | (links_within_polygon_gdf["bus_only"]=="1")), 
+                    0.5, 
+                    1)
+                )
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
                 )

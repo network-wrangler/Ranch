@@ -121,27 +121,26 @@ class Parameters:
         self.transit_routing_parameters = {
             "good_links_buffer_radius": 200,
             "non_good_links_penalty": 5,
-            "bad_stops_buffer_radius": 200,
+            "bad_stops_buffer_radius": 120,
             "ft_penalty": {
                 "residential": 2,
                 "service": 2.5,
                 "default": 1,
                 "motorway_link": 1.5,
-                "primary": 0.7,
-                "motorway": 0.7,
+                "motorway": 0.8,
             },
         }
 
         self.transit_routing_parameters_suburban = {
             "good_links_buffer_radius": 200,
             "non_good_links_penalty": 5,
-            "bad_stops_buffer_radius": 200,
+            "bad_stops_buffer_radius": 120,
             "ft_penalty": {
                 "residential": 2,
                 "service": 2.5,
                 "default": 1,
-                "motorway_link": 0.7,
-                "motorway": 0.5
+                "motorway_link": 0.8,
+                "motorway": 0.7
             },
         }
 
