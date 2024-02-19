@@ -119,8 +119,8 @@ class Parameters:
         }
 
         self.transit_routing_parameters = {
-            "good_links_buffer_radius": 200,
-            "non_good_links_penalty": 5,
+            "good_links_buffer_radius": 50,
+            "non_good_links_penalty": 10,
             "bad_stops_buffer_radius": 120,
             "ft_penalty": {
                 "residential": 2,
@@ -132,8 +132,8 @@ class Parameters:
         }
 
         self.transit_routing_parameters_suburban = {
-            "good_links_buffer_radius": 200,
-            "non_good_links_penalty": 5,
+            "good_links_buffer_radius": 50,
+            "non_good_links_penalty": 10,
             "bad_stops_buffer_radius": 120,
             "ft_penalty": {
                 "residential": 2,

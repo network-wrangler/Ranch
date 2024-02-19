@@ -21,7 +21,7 @@ from .logger import RanchLogger
 from .parameters import Parameters
 from .roadway import Roadway
 from .sharedstreets import read_shst_extraction, run_shst_match
-from .utils import find_closest_node, geodesic_point_buffer, ox_graph
+from .utils import find_closest_node, geodesic_point_buffer, ox_graph, line_buffer
 
 TRANSIT_UNQIUE_SHAPE_ID = ["agency_raw_name", "shape_id"]
 
@@ -756,22 +756,29 @@ class Transit(object):
         )
 
         # get stops that are on bus trips only
-        stops_on_bus_trips_df = stop_trip_df[
-            (
-                stop_trip_df["agency_raw_name"].isin(
-                    bus_trip_df["agency_raw_name"].unique()
-                )
+        # stops_on_bus_trips_df = stop_trip_df[
+        #     (
+        #         stop_trip_df["agency_raw_name"].isin(
+        #             bus_trip_df["agency_raw_name"].unique()
+        #         )
+        #     )
+        #     & (stop_trip_df["trip_id"].isin(bus_trip_df["trip_id"].unique()))
+        # ].copy()
+        # stops_on_bus_trips_df.drop_duplicates(
+        #     subset=["agency_raw_name", "stop_id"], inplace=True
+        # )
+
+        # get bus shapes
+        bus_shapes_df = self.feed.shapes[(
+            self.feed.shapes.shape_id.isin(
+                bus_trip_df.shape_id.unique()
             )
-            & (stop_trip_df["trip_id"].isin(bus_trip_df["trip_id"].unique()))
-        ].copy()
-        stops_on_bus_trips_df.drop_duplicates(
-            subset=["agency_raw_name", "stop_id"], inplace=True
-        )
+        )].copy()
 
         RanchLogger.info("Setting good link dictionary")
 
         # set good link dictionary based on stops
-        self.set_good_links(stops_on_bus_trips_df, good_links_buffer_radius)
+        self.set_good_links(bus_shapes_df, good_links_buffer_radius)
 
         # output dataframe for osmnx success
         trip_osm_link_df = pd.DataFrame()
@@ -851,7 +858,7 @@ class Transit(object):
                 ].copy()
 
                 # get the good links from good links dictionary
-                good_links_list = self.get_good_link_for_trip(trip_stops_df)
+                good_links_list = self.get_good_link_for_trip(shape_df)
 
                 # update link weights
                 links_within_polygon_gdf["length_weighted"] = np.where(
@@ -990,17 +997,17 @@ class Transit(object):
         else:
             return pd.DataFrame()
 
-    def set_good_links(self, stops, good_links_buffer_radius):
+    def set_good_links(self, shapes, good_links_buffer_radius):
 
         """
-        for each bus stop, get the list of good link IDs and store them to a dict
+        for each bus shape, get the list of good link IDs and store them to a dict
         """
 
         # get non-motorway links
         # maybe not a good idea?
-        non_motorway_links_df = self.roadway_network.links_df[
-            ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
-        ].copy()
+        # non_motorway_links_df = self.roadway_network.links_df[
+        #     ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
+        # ].copy()
 
         # get drive links
         drive_links_df = self.roadway_network.links_df[
@@ -1012,35 +1019,34 @@ class Transit(object):
         ].copy()
 
         # get the links that are within stop buffer
-        stop_good_link_df = Transit.links_within_stop_buffer(
-            # non_motorway_links_df,
+        stop_good_link_df = Transit.links_within_shape_buffer(
             drive_links_df,
-            stops,
+            shapes,
             buffer_radius=good_links_buffer_radius,
         )
 
         good_link_dict = (
-            stop_good_link_df.groupby(["agency_raw_name", "stop_id"])["shstReferenceId"]
+            stop_good_link_df.groupby(["agency_raw_name", "shape_id"])["shstReferenceId"]
             .apply(list)
             .to_dict()
         )
 
         self.good_link_dict = good_link_dict
 
-    def get_good_link_for_trip(self, trip_stops):
+    def get_good_link_for_trip(self, shape_df):
         """
-        for input stop IDs return a list of the good link IDs
+        for input shape ID return a list of the good link IDs
         """
 
         link_shstReferenceId_list = []
-        for agency_raw_name in trip_stops["agency_raw_name"].unique():
-            stop_id_list = trip_stops[trip_stops["agency_raw_name"] == agency_raw_name][
-                "stop_id"
+        for agency_raw_name in shape_df["agency_raw_name"].unique():
+            shape_id_list = shape_df[shape_df["agency_raw_name"] == agency_raw_name][
+                "shape_id"
             ].unique()
-            for stop_id in stop_id_list:
-                if self.good_link_dict.get((agency_raw_name, stop_id)):
+            for shape_id in shape_id_list:
+                if self.good_link_dict.get((agency_raw_name, shape_id)):
                     link_shstReferenceId_list += self.good_link_dict.get(
-                        (agency_raw_name, stop_id)
+                        (agency_raw_name, shape_id)
                     )
 
         return link_shstReferenceId_list
@@ -1072,6 +1078,46 @@ class Transit(object):
         ]
         
         return stop_buffer_link_df
+
+    def links_within_shape_buffer(drive_link_df, shapes, buffer_radius):
+        """
+        find the links that are within buffer of shapes
+        """
+
+        bus_shapes_gdf = shapes.copy()
+        bus_shapes_gdf = gpd.GeoDataFrame(
+            bus_shapes_gdf,
+            geometry = gpd.points_from_xy(bus_shapes_gdf['shape_pt_lon'], bus_shapes_gdf['shape_pt_lat']),
+            crs = drive_link_df.crs
+        )
+        shapes_line_gdf = bus_shapes_gdf.sort_values(by=['shape_pt_sequence']).groupby(['agency_raw_name' ,'shape_id'])['geometry'].apply(
+            lambda x: LineString(x.tolist())
+        )
+        shapes_line_gdf = gpd.GeoDataFrame(
+            shapes_line_gdf, 
+            geometry = 'geometry',
+            crs = drive_link_df.crs
+            ).reset_index()
+
+        shape_buffer_df = gpd.GeoDataFrame(
+            shapes_line_gdf[['agency_raw_name','shape_id']],
+            geometry = shapes_line_gdf.geometry.apply(
+                lambda x: line_buffer(x, buffer_radius)), 
+            crs = drive_link_df.crs
+        )
+
+        shape_buffer_link_df = gpd.sjoin(
+            drive_link_df,
+            shape_buffer_df[["geometry", "agency_raw_name","shape_id"]], 
+            how = "left", 
+            predicate = "intersects"
+        )
+        
+        shape_buffer_link_df = shape_buffer_link_df[
+            shape_buffer_link_df.shape_id.notnull()
+        ]
+        
+        return shape_buffer_link_df
 
     def set_bad_stops(self, bad_stop_buffer_radius: Optional[float] = None):
         """
@@ -1282,7 +1328,7 @@ class Transit(object):
                 ].copy()
 
                 # get the links that are within stop buffer
-                good_links_list = self.get_good_link_for_trip(trip_stops_df)
+                good_links_list = self.get_good_link_for_trip(shape_df)
 
                 # update link weights
                 links_within_polygon_gdf["length_weighted"] = np.where(

@@ -616,6 +616,16 @@ def buffer2(polygon):
     return polygon.minimum_rotated_rectangle
 
 
+def line_buffer(line, buffer_dist):
+    line_proj, crs_utm = project_geometry(line, to_crs=CRS('epsg:3857'))
+    line_proj_buff = line_proj.buffer(buffer_dist)
+    line_buff, _ = project_geometry(line_proj_buff, 
+                                    crs=CRS('epsg:3857'),
+                                    to_latlong=True
+    )
+
+    return line_buff
+
 def getAngle(a, b, c):
     ang = math.degrees(
         math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0])
