@@ -613,16 +613,22 @@ class Transit(object):
         """
         RanchLogger.info('Snapping gtfs stops to roadway node...')
 
-        # get rid of motorway nodes
-        link_candidates_for_nodes_df = self.roadway_network.links_df[
-            (
-            (~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link']))
-            & (self.roadway_network.links_df.assign_group<100)
-            & ((self.roadway_network.links_df.drive_access==1) | (self.roadway_network.links_df.drive_access=="1"))
-            )
-            | ((self.roadway_network.links_df.bus_only==1) | (self.roadway_network.links_df.bus_only=="1"))
-        ].copy()
+        link_candidates_for_nodes_df = self.roadway_network.links_df.copy()
 
+        if "assign_group" not in link_candidates_for_nodes_df.columns:
+            link_candidates_for_nodes_df["assign_group"] = 0
+        if "bus_only" not in link_candidates_for_nodes_df.columns:
+            link_candidates_for_nodes_df["bus_only"] = 0
+        
+        # get rid of motorway nodes    
+        link_candidates_for_nodes_df = link_candidates_for_nodes_df[
+            (
+            (~link_candidates_for_nodes_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link']))
+            & (link_candidates_for_nodes_df.assign_group<100)
+            & ((link_candidates_for_nodes_df.drive_access==1) | (link_candidates_for_nodes_df.drive_access=="1"))
+            )
+            | ((link_candidates_for_nodes_df.bus_only==1) | (link_candidates_for_nodes_df.bus_only=="1"))
+        ].copy()
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
             (self.roadway_network.nodes_df.shst_node_id.isin(
@@ -808,15 +814,20 @@ class Transit(object):
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
+                links_within_polygon_gdf = links_gdf.copy()
+                if "assign_group" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["assign_group"] = 0
+                if "bus_only" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["bus_only"] = 0
                 # get roadway links and nodes within bounding box
                 # exclude cycleway and footway
-                links_within_polygon_gdf = links_gdf[
-                    (links_gdf.geometry.within(shape_polygon)) &
-                    ((links_gdf.drive_access == 1)|
-                    (links_gdf.drive_access == "1")|
-                    (links_gdf.bus_only == 1)|
-                    (links_gdf.bus_only == "1")) 
-                    & (links_gdf.assign_group<100)
+                links_within_polygon_gdf = links_within_polygon_gdf[
+                    (links_within_polygon_gdf.geometry.within(shape_polygon)) &
+                    ((links_within_polygon_gdf.drive_access == 1)|
+                    (links_within_polygon_gdf.drive_access == "1")|
+                    (links_within_polygon_gdf.bus_only == 1)|
+                    (links_within_polygon_gdf.bus_only == "1")) 
+                    & (links_within_polygon_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -983,13 +994,20 @@ class Transit(object):
         #     ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
         # ].copy()
 
+        drive_links_df = self.roadway_network.links_df.copy()
+
+        if "assign_group" not in drive_links_df.columns:
+            drive_links_df["assign_group"] = 0
+        if "bus_only" not in drive_links_df.columns:
+            drive_links_df["bus_only"] = 0
+
         # get drive links
-        drive_links_df = self.roadway_network.links_df[
-            ((self.roadway_network.links_df.drive_access == 1)|
-            (self.roadway_network.links_df.drive_access == "1")|
-            (self.roadway_network.links_df.bus_only == 1) |
-            (self.roadway_network.links_df.bus_only == "1")) 
-            & (self.roadway_network.links_df.assign_group<100)
+        drive_links_df = drive_links_df[
+            ((drive_links_df.drive_access == 1)|
+            (drive_links_df.drive_access == "1")|
+            (drive_links_df.bus_only == 1) |
+            (drive_links_df.bus_only == "1")) 
+            & (drive_links_df.assign_group<100)
         ].copy()
 
         # get the links that are within stop buffer
@@ -1278,15 +1296,22 @@ class Transit(object):
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
+                links_within_polygon_gdf = links_gdf.copy()
+
+                if "assign_group" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["assign_group"] = 0
+                if "bus_only" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["bus_only"] = 0
+
                 # get roadway links and nodes within bounding box
                 # exclude cycleway and footway
-                links_within_polygon_gdf = links_gdf[
-                    (links_gdf.geometry.within(shape_polygon)) &
-                    ((links_gdf.drive_access == 1)|
-                    (links_gdf.drive_access == "1")|
-                    (links_gdf.bus_only == 1)|
-                    (links_gdf.bus_only == "1")) 
-                    & (links_gdf.assign_group<100)
+                links_within_polygon_gdf = links_within_polygon_gdf[
+                    (links_within_polygon_gdf.geometry.within(shape_polygon)) &
+                    ((links_within_polygon_gdf.drive_access == 1)|
+                    (links_within_polygon_gdf.drive_access == "1")|
+                    (links_within_polygon_gdf.bus_only == 1)|
+                    (links_within_polygon_gdf.bus_only == "1")) 
+                    & (links_within_polygon_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
