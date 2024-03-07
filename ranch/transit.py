@@ -518,18 +518,6 @@ class Transit(object):
 
         ## then choose the most frequent shape_id for each route
         # for frequency use the total number of trips
-        # def agg(x):
-        #     m = x.shape_id.iloc[np.argmax(x.trip_num_for_shape.values)]
-        #     return pd.Series({"trip_num": x.trip_num_for_shape.sum(), "shape_id": m})
-
-        # if num_most_pattern == 0:
-        #     trip_freq_df = (
-        #         trip_freq_df.reset_index()
-        #         .groupby(["agency_raw_name", "route_id", "tod", "direction_id"])
-        #         .apply(agg)
-        #     )
-
-        # else:
 
         # keep the n most frequent patterns
         # calculate total number of trip per route by time and direction
@@ -641,7 +629,6 @@ class Transit(object):
                 link_candidates_for_nodes_df.fromIntersectionId.tolist()
                 + link_candidates_for_nodes_df.toIntersectionId.tolist())
             )
-            # & (self.roadway_network.nodes_df.drive_access == 1)
         ].copy()
 
         stop_df = self.feed.stops.copy()
@@ -754,19 +741,6 @@ class Transit(object):
             keep="first",
             inplace=True,
         )
-
-        # get stops that are on bus trips only
-        # stops_on_bus_trips_df = stop_trip_df[
-        #     (
-        #         stop_trip_df["agency_raw_name"].isin(
-        #             bus_trip_df["agency_raw_name"].unique()
-        #         )
-        #     )
-        #     & (stop_trip_df["trip_id"].isin(bus_trip_df["trip_id"].unique()))
-        # ].copy()
-        # stops_on_bus_trips_df.drop_duplicates(
-        #     subset=["agency_raw_name", "stop_id"], inplace=True
-        # )
 
         # get bus shapes
         bus_shapes_df = self.feed.shapes[(
