@@ -140,10 +140,9 @@ class Parameters:
                 "service": 2.5,
                 "default": 1,
                 "motorway_link": 0.8,
-                "motorway": 0.7
+                "motorway": 0.7,
             },
         }
-
 
         self.standard_crs = CRS("epsg:4326")
         # do not convert if alt_standard_crs

@@ -16,7 +16,6 @@ __all__ = ["run_shst_extraction"]
 
 
 def run_shst_extraction(input_polygon_file: str, output_dir: str):
-
     """
     run sharedstreet extraction with input polygon
 
@@ -54,7 +53,6 @@ def run_shst_extraction(input_polygon_file: str, output_dir: str):
 
     # export polygon to geojson for shst node js
     for i in range(len(polygon_gdf.geometry)):
-
         RanchLogger.info(
             "Exporting boundry file {}".format(
                 os.path.join(output_dir, "boundary." + str(i) + ".geojson")
@@ -81,7 +79,6 @@ def _run_shst_extraction(
     input_file_name: str,
     output_dir: str,
 ):
-
     """
     actual call shst extraction in container
     """
@@ -118,7 +115,6 @@ def run_shst_match(
     input_unique_id: Optional[list] = None,
     custom_match_option: Optional[str] = None,
 ):
-
     """
     run sharedstreet match with input network
 
@@ -143,12 +139,14 @@ def run_shst_match(
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
             network_gdf = gpd.read_file(input_network_file)
-            RanchLogger.debug("input network {} has crs : {}".format(input_network_file,network_gdf.crs))
-            if file_extension == '.shp':
-                network_gdf.to_file(
-                    filename + '.geojson', driver = 'GeoJSON'
+            RanchLogger.debug(
+                "input network {} has crs : {}".format(
+                    input_network_file, network_gdf.crs
                 )
-                input_network_file = filename + '.geojson'
+            )
+            if file_extension == ".shp":
+                network_gdf.to_file(filename + ".geojson", driver="GeoJSON")
+                input_network_file = filename + ".geojson"
         else:
             msg = "Invalid network file, should be .shp or .geojson"
             RanchLogger.error(msg)
@@ -165,7 +163,7 @@ def run_shst_match(
     # convert to lat-long
     if network_gdf.crs != standard_crs:
         network_gdf = network_gdf.to_crs(alt_standard_crs)
-        network_gdf.to_file(input_network_file, driver = 'GeoJSON')
+        network_gdf.to_file(input_network_file, driver="GeoJSON")
 
     # check if input network has unique IDs
     if input_unique_id:
@@ -173,9 +171,9 @@ def run_shst_match(
         filename = (
             os.path.splitext(input_network_file)[0].replace("\\", "/").split("/")[-1]
         )
-        network_gdf[network_gdf.geometry.notnull()][input_unique_id + ['geometry']].to_file(
-            os.path.join(output_dir, filename + ".geojson"), driver="GeoJSON"
-        )
+        network_gdf[network_gdf.geometry.notnull()][
+            input_unique_id + ["geometry"]
+        ].to_file(os.path.join(output_dir, filename + ".geojson"), driver="GeoJSON")
 
     # if not, create unique IDs
     else:
@@ -233,7 +231,6 @@ def _run_shst_match(
     output_dir: str,
     match_option: str,
 ):
-
     """
     actual call shst match in container
     """
@@ -251,7 +248,13 @@ def _run_shst_match(
 
     container.exec_run(
         cmd=(
-            'shst match usr/node/'+input_file_name+'.geojson --out=usr/node/'+'match.'+input_file_name.replace(' ', '')+'.geojson '+match_option
+            "shst match usr/node/"
+            + input_file_name
+            + ".geojson --out=usr/node/"
+            + "match."
+            + input_file_name.replace(" ", "")
+            + ".geojson "
+            + match_option
         )
     )
 
@@ -311,13 +314,10 @@ def _extract_osm_link_from_shst_extraction(
 
         osm_from_shst_link_list.append(link_df)
     else:
-        link_df = DataFrame([[row.get('id')]], columns = ['geometryId'])
+        link_df = DataFrame([[row.get("id")]], columns=["geometryId"])
 
-        #osm_from_shst_link_list.append(link_df)
+        # osm_from_shst_link_list.append(link_df)
 
         RanchLogger.debug(
-            "record {} from {} does not have metadata".format(
-                row['id'],
-                row['source']
-            )
+            "record {} from {} does not have metadata".format(row["id"], row["source"])
         )
