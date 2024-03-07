@@ -21,7 +21,7 @@ from .logger import RanchLogger
 from .parameters import Parameters
 from .roadway import Roadway
 from .sharedstreets import read_shst_extraction, run_shst_match
-from .utils import find_closest_node, geodesic_point_buffer, ox_graph
+from .utils import find_closest_node, geodesic_point_buffer, ox_graph, line_buffer
 
 TRANSIT_UNQIUE_SHAPE_ID = ["agency_raw_name", "shape_id"]
 
@@ -83,6 +83,7 @@ class Transit(object):
         self.shortest_path_failed_shape_list: list = []
         self.unique_rail_links_gdf: gpd.GeoDataFrame() = None
         self.unique_rail_nodes_gdf: gpd.GeoDataFrame() = None
+        self.enable_shst_match: bool = False
 
         # will have to change if want to alter them
         if type(parameters) is dict:
@@ -195,7 +196,7 @@ class Transit(object):
     def build_standard_transit_network(
         self,
         num_most_pattern: int = 1,
-        multithread_shst_match: bool = True,
+        multithread_shst_match: bool = False,
         multithread_shortest_path: bool = False
     ):
         """
@@ -447,7 +448,7 @@ class Transit(object):
             subset=["agency_raw_name", "trip_id"]
         )
 
-        ## identify peak, offpeak trips, based on the arrival time of first stop
+        ## identify time period trips, based on the arrival time of first stop
         trip_df = self.feed.trips.copy()
         trip_df = pd.merge(
             trip_df, first_stop_df, how="left", on=["agency_raw_name", "trip_id"]
@@ -455,18 +456,36 @@ class Transit(object):
 
         model_time_period = self.parameters.model_time_period
 
-        ## AM: 6-10am, MD: 10am-3pm, PM: 3-7pm, NT 7pm-3am, EA 3-6am
-        trip_df["tod"] = np.where(
-            (trip_df["arrival_h"] >= model_time_period.get("pk").get("start"))
-            & (trip_df["arrival_h"] < model_time_period.get("pk").get("end")),
-            "pk",
-            np.where(
-                (trip_df["arrival_h"] >= model_time_period.get("op").get("start"))
-                & (trip_df["arrival_h"] < model_time_period.get("op").get("end")),
-                "op",
-                "other"
-            ),
-        )
+        def get_tod(arrival_hour):
+            for period, time_info in model_time_period.items():
+                if time_info["start"] < time_info["end"]:
+                    if (arrival_hour >= time_info["start"] and arrival_hour < time_info["end"]):
+                        return period
+                else:
+                    if (arrival_hour >= time_info["start"] or arrival_hour < time_info["end"]):
+                        return period        
+            return "NA"
+
+        def get_tod_short_window(arrival_hour):
+            for period, time_info in model_time_period.items():
+                if time_info.get("frequency_start"):
+                    if time_info["frequency_start"] < time_info["frequency_end"]:
+                        if (arrival_hour >= time_info["frequency_start"] and arrival_hour < time_info["frequency_end"]):
+                            return period
+                    else:
+                        if (arrival_hour >= time_info["frequency_start"] or arrival_hour < time_info["frequency_end"]):
+                            return period   
+            return "NA"
+
+        trip_df["tod"] = trip_df["arrival_h"].apply(get_tod)
+        trip_df["tod_short_window"] = trip_df["arrival_h"].apply(get_tod_short_window)
+        tod_short_window = [key for key, value in model_time_period.items() if "frequency_start" in value]
+
+        # filter out the records that are not in the short window
+        trip_df = trip_df[
+            ~(trip_df['tod'].isin(tod_short_window)&
+            (trip_df['tod_short_window']=="NA"))
+        ]
 
         # get the most frequent trip for each route, by direction, by time of day
         ## trips share the same shape_id is considered being the same
@@ -484,53 +503,54 @@ class Transit(object):
             inplace = True
         )
 
+        # add the short window time period info to the trip_freq_df
+        trip_short_window_df = trip_df[["agency_raw_name", "route_id", "tod", "tod_short_window", "direction_id", "shape_id"]].copy()
+        trip_short_window_df.drop_duplicates(
+                    subset = ["agency_raw_name", "route_id", "tod", "direction_id", "shape_id"],
+                    inplace = True
+                )
+        trip_freq_df = pd.merge(
+            trip_freq_df,
+            trip_short_window_df, 
+            how = "left", 
+            on = ['agency_raw_name', 'route_id', 'direction_id', 'shape_id','tod']
+        )
+
         ## then choose the most frequent shape_id for each route
         # for frequency use the total number of trips
-        def agg(x):
-            m = x.shape_id.iloc[np.argmax(x.trip_num_for_shape.values)]
-            return pd.Series({"trip_num": x.trip_num_for_shape.sum(), "shape_id": m})
 
-        if num_most_pattern == 0:
-            trip_freq_df = (
-                trip_freq_df.reset_index()
-                .groupby(["agency_raw_name", "route_id", "tod", "direction_id"])
-                .apply(agg)
-            )
+        # keep the n most frequent patterns
+        # calculate total number of trip per route by time and direction
+        trip_num_df = trip_freq_df.groupby(
+            ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+        )["trip_num_for_shape"].sum().reset_index()
+        trip_num_df.rename(
+            columns = {"trip_num_for_shape" : "trip_num_total"}, 
+            inplace = True
+        )
+        # sort shape freuqncy table by number of trips per shape
+        trip_freq_df = trip_freq_df.sort_values(
+            by = ['agency_raw_name', 'route_id', 'tod', 'direction_id', "trip_num_for_shape"], 
+            ascending = False
+        )
+        # keep the N most frequent shape
+        trip_freq_df = trip_freq_df.groupby(
+            ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+        ).head(num_most_pattern).reset_index()
+    
+        trip_freq_df = pd.merge(
+            trip_freq_df,#.drop("trip_id", axis = 1), 
+            trip_num_df, 
+            how = "left", 
+            on = ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+        )
         
-        else:
-            # keep the n most frequent pattern
-        
-            # calculate total number of trip per route by time and direction
-            trip_num_df = trip_freq_df.groupby(
-                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
-            )["trip_num_for_shape"].sum().reset_index()
-            trip_num_df.rename(
-                columns = {"trip_num_for_shape" : "trip_num_total"}, 
-                inplace = True
-            )
-            # sort shape freuqncy table by number of trips per shape
-            trip_freq_df = trip_freq_df.sort_values(
-                by = ['agency_raw_name', 'route_id', 'tod', 'direction_id', "trip_num_for_shape"], 
-                ascending = False
-            )
-            # keep the N most frequent shape
-            trip_freq_df = trip_freq_df.groupby(
-                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
-            ).head(num_most_pattern).reset_index()
-        
-            trip_freq_df = pd.merge(
-                trip_freq_df,#.drop("trip_id", axis = 1), 
-                trip_num_df, 
-                how = "left", 
-                on = ['agency_raw_name', 'route_id', 'tod', 'direction_id']
-            )
-            
-            trip_freq_df["num_pattern"] = trip_freq_df.groupby(
-                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
-            )["shape_id"].transform("count")
-            trip_freq_df["trip_num_N_most"] = trip_freq_df.groupby(
-                ['agency_raw_name', 'route_id', 'tod', 'direction_id']
-            )["trip_num_for_shape"].transform("sum")
+        trip_freq_df["num_pattern"] = trip_freq_df.groupby(
+            ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+        )["shape_id"].transform("count")
+        trip_freq_df["trip_num_N_most"] = trip_freq_df.groupby(
+            ['agency_raw_name', 'route_id', 'tod', 'direction_id']
+        )["trip_num_for_shape"].transform("sum")
 
         # sort trips based on #stops on them
         trip_stops_df = (
@@ -593,18 +613,27 @@ class Transit(object):
         """
         RanchLogger.info('Snapping gtfs stops to roadway node...')
 
-        # get rid of motorway nodes
-        non_motorway_links_df = self.roadway_network.links_df[
-            ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
+        link_candidates_for_nodes_df = self.roadway_network.links_df.copy()
+
+        if "assign_group" not in link_candidates_for_nodes_df.columns:
+            link_candidates_for_nodes_df["assign_group"] = 0
+        if "bus_only" not in link_candidates_for_nodes_df.columns:
+            link_candidates_for_nodes_df["bus_only"] = 0
+        
+        # get rid of motorway nodes    
+        link_candidates_for_nodes_df = link_candidates_for_nodes_df[
+            (
+            (~link_candidates_for_nodes_df.roadway.isin(["motorway", "motorway_link", 'trunk', 'trunk_link']))
+            & (link_candidates_for_nodes_df.assign_group<100)
+            & ((link_candidates_for_nodes_df.drive_access==1) | (link_candidates_for_nodes_df.drive_access=="1"))
+            )
+            | ((link_candidates_for_nodes_df.bus_only==1) | (link_candidates_for_nodes_df.bus_only=="1"))
         ].copy()
 
         node_candidates_for_stops_df = self.roadway_network.nodes_df[
-            (
-                self.roadway_network.nodes_df.shst_node_id.isin(
-                    non_motorway_links_df.fromIntersectionId.tolist()
-                    + non_motorway_links_df.toIntersectionId.tolist()
-                )
-                & (self.roadway_network.nodes_df.drive_access == 1)
+            (self.roadway_network.nodes_df.shst_node_id.isin(
+                link_candidates_for_nodes_df.fromIntersectionId.tolist()
+                + link_candidates_for_nodes_df.toIntersectionId.tolist())
             )
         ].copy()
 
@@ -637,6 +666,7 @@ class Transit(object):
         self,
         good_links_buffer_radius: Optional[float] = None,
         ft_penalty: Optional[Dict] = None,
+        ft_penalty_suburban: Optional[Dict] = None,
         non_good_links_penalty: Optional[float] = None,
     ):
 
@@ -654,6 +684,11 @@ class Transit(object):
             ft_penalty = ft_penalty
         else:
             ft_penalty = self.parameters.transit_routing_parameters.get("ft_penalty")
+
+        if ft_penalty_suburban:
+            ft_penalty_suburban = ft_penalty_suburban
+        else:
+            ft_penalty_suburban = self.parameters.transit_routing_parameters_suburban.get("ft_penalty")  
 
         if non_good_links_penalty:
             non_good_links_penalty = non_good_links_penalty
@@ -713,23 +748,17 @@ class Transit(object):
             inplace=True,
         )
 
-        # get stops that are on bus trips only
-        stops_on_bus_trips_df = stop_trip_df[
-            (
-                stop_trip_df["agency_raw_name"].isin(
-                    bus_trip_df["agency_raw_name"].unique()
-                )
+        # get bus shapes
+        bus_shapes_df = self.feed.shapes[(
+            self.feed.shapes.shape_id.isin(
+                bus_trip_df.shape_id.unique()
             )
-            & (stop_trip_df["trip_id"].isin(bus_trip_df["trip_id"].unique()))
-        ].copy()
-        stops_on_bus_trips_df.drop_duplicates(
-            subset=["agency_raw_name", "stop_id"], inplace=True
-        )
+        )].copy()
 
         RanchLogger.info("Setting good link dictionary")
 
         # set good link dictionary based on stops
-        self.set_good_links(stops_on_bus_trips_df, good_links_buffer_radius)
+        self.set_good_links(bus_shapes_df, good_links_buffer_radius)
 
         # output dataframe for osmnx success
         trip_osm_link_df = pd.DataFrame()
@@ -785,11 +814,20 @@ class Transit(object):
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
+                links_within_polygon_gdf = links_gdf.copy()
+                if "assign_group" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["assign_group"] = 0
+                if "bus_only" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["bus_only"] = 0
                 # get roadway links and nodes within bounding box
                 # exclude cycleway and footway
-                links_within_polygon_gdf = links_gdf[
-                    (links_gdf.geometry.within(shape_polygon)) &
-                    (links_gdf.drive_access == 1)
+                links_within_polygon_gdf = links_within_polygon_gdf[
+                    (links_within_polygon_gdf.geometry.within(shape_polygon)) &
+                    ((links_within_polygon_gdf.drive_access == 1)|
+                    (links_within_polygon_gdf.drive_access == "1")|
+                    (links_within_polygon_gdf.bus_only == 1)|
+                    (links_within_polygon_gdf.bus_only == "1")) 
+                    & (links_within_polygon_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -805,7 +843,7 @@ class Transit(object):
                 ].copy()
 
                 # get the good links from good links dictionary
-                good_links_list = self.get_good_link_for_trip(trip_stops_df)
+                good_links_list = self.get_good_link_for_trip(shape_df)
 
                 # update link weights
                 links_within_polygon_gdf["length_weighted"] = np.where(
@@ -814,9 +852,30 @@ class Transit(object):
                     links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
+                route_long_name = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_long_name'].iloc[0]
+
+                route_id = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_id'].iloc[0]
+
+                if ("express" in str(route_long_name)) or (int(route_id) > 99):
+                    link_penalty = ft_penalty_suburban
+                else:
+                    link_penalty = ft_penalty
+
                 # apply ft penalty
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
+                # bus_only link
+                links_within_polygon_gdf["ft_penalty"] = (links_within_polygon_gdf["ft_penalty"] * np.where(
+                    ((links_within_polygon_gdf["bus_only"]==1) | (links_within_polygon_gdf["bus_only"]=="1")), 
+                    0.5, 
+                    1)
+                )
 
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
@@ -923,53 +982,63 @@ class Transit(object):
         else:
             return pd.DataFrame()
 
-    def set_good_links(self, stops, good_links_buffer_radius):
+    def set_good_links(self, shapes, good_links_buffer_radius):
 
         """
-        for each bus stop, get the list of good link IDs and store them to a dict
+        for each bus shape, get the list of good link IDs and store them to a dict
         """
 
         # get non-motorway links
         # maybe not a good idea?
-        non_motorway_links_df = self.roadway_network.links_df[
-            ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
-        ].copy()
+        # non_motorway_links_df = self.roadway_network.links_df[
+        #     ~self.roadway_network.links_df.roadway.isin(["motorway", "motorway_link"])
+        # ].copy()
+
+        drive_links_df = self.roadway_network.links_df.copy()
+
+        if "assign_group" not in drive_links_df.columns:
+            drive_links_df["assign_group"] = 0
+        if "bus_only" not in drive_links_df.columns:
+            drive_links_df["bus_only"] = 0
 
         # get drive links
-        drive_links_df = self.roadway_network.links_df[
-            self.roadway_network.links_df.drive_access == 1
+        drive_links_df = drive_links_df[
+            ((drive_links_df.drive_access == 1)|
+            (drive_links_df.drive_access == "1")|
+            (drive_links_df.bus_only == 1) |
+            (drive_links_df.bus_only == "1")) 
+            & (drive_links_df.assign_group<100)
         ].copy()
 
         # get the links that are within stop buffer
-        stop_good_link_df = Transit.links_within_stop_buffer(
-            # non_motorway_links_df,
+        stop_good_link_df = Transit.links_within_shape_buffer(
             drive_links_df,
-            stops,
+            shapes,
             buffer_radius=good_links_buffer_radius,
         )
 
         good_link_dict = (
-            stop_good_link_df.groupby(["agency_raw_name", "stop_id"])["shstReferenceId"]
+            stop_good_link_df.groupby(["agency_raw_name", "shape_id"])["shstReferenceId"]
             .apply(list)
             .to_dict()
         )
 
         self.good_link_dict = good_link_dict
 
-    def get_good_link_for_trip(self, trip_stops):
+    def get_good_link_for_trip(self, shape_df):
         """
-        for input stop IDs return a list of the good link IDs
+        for input shape ID return a list of the good link IDs
         """
 
         link_shstReferenceId_list = []
-        for agency_raw_name in trip_stops["agency_raw_name"].unique():
-            stop_id_list = trip_stops[trip_stops["agency_raw_name"] == agency_raw_name][
-                "stop_id"
+        for agency_raw_name in shape_df["agency_raw_name"].unique():
+            shape_id_list = shape_df[shape_df["agency_raw_name"] == agency_raw_name][
+                "shape_id"
             ].unique()
-            for stop_id in stop_id_list:
-                if self.good_link_dict.get((agency_raw_name, stop_id)):
+            for shape_id in shape_id_list:
+                if self.good_link_dict.get((agency_raw_name, shape_id)):
                     link_shstReferenceId_list += self.good_link_dict.get(
-                        (agency_raw_name, stop_id)
+                        (agency_raw_name, shape_id)
                     )
 
         return link_shstReferenceId_list
@@ -1001,6 +1070,46 @@ class Transit(object):
         ]
         
         return stop_buffer_link_df
+
+    def links_within_shape_buffer(drive_link_df, shapes, buffer_radius):
+        """
+        find the links that are within buffer of shapes
+        """
+
+        bus_shapes_gdf = shapes.copy()
+        bus_shapes_gdf = gpd.GeoDataFrame(
+            bus_shapes_gdf,
+            geometry = gpd.points_from_xy(bus_shapes_gdf['shape_pt_lon'], bus_shapes_gdf['shape_pt_lat']),
+            crs = drive_link_df.crs
+        )
+        shapes_line_gdf = bus_shapes_gdf.sort_values(by=['shape_pt_sequence']).groupby(['agency_raw_name' ,'shape_id'])['geometry'].apply(
+            lambda x: LineString(x.tolist())
+        )
+        shapes_line_gdf = gpd.GeoDataFrame(
+            shapes_line_gdf, 
+            geometry = 'geometry',
+            crs = drive_link_df.crs
+            ).reset_index()
+
+        shape_buffer_df = gpd.GeoDataFrame(
+            shapes_line_gdf[['agency_raw_name','shape_id']],
+            geometry = shapes_line_gdf.geometry.apply(
+                lambda x: line_buffer(x, buffer_radius)), 
+            crs = drive_link_df.crs
+        )
+
+        shape_buffer_link_df = gpd.sjoin(
+            drive_link_df,
+            shape_buffer_df[["geometry", "agency_raw_name","shape_id"]], 
+            how = "left", 
+            predicate = "intersects"
+        )
+        
+        shape_buffer_link_df = shape_buffer_link_df[
+            shape_buffer_link_df.shape_id.notnull()
+        ]
+        
+        return shape_buffer_link_df
 
     def set_bad_stops(self, bad_stop_buffer_radius: Optional[float] = None):
         """
@@ -1078,6 +1187,7 @@ class Transit(object):
         self,
         good_links_buffer_radius: Optional[float] = None,
         ft_penalty: Optional[Dict] = None,
+        ft_penalty_suburban: Optional[Dict] = None,
         non_good_links_penalty: Optional[float] = None,
     ):
         """
@@ -1095,6 +1205,11 @@ class Transit(object):
             ft_penalty = ft_penalty
         else:
             ft_penalty = self.parameters.transit_routing_parameters.get("ft_penalty")
+
+        if ft_penalty_suburban:
+            ft_penalty_suburban = ft_penalty_suburban
+        else:
+            ft_penalty_suburban = self.parameters.transit_routing_parameters_suburban.get("ft_penalty")  
 
         if non_good_links_penalty:
             non_good_links_penalty = non_good_links_penalty
@@ -1121,6 +1236,11 @@ class Transit(object):
             self.trip_osm_link_df[['agency_raw_name', 'trip_id']].drop_duplicates(),
             how = 'inner',
             on = ['agency_raw_name', 'trip_id']
+        )
+
+        bus_trip_df = pd.merge(
+            bus_trip_df,
+            self.feed.routes[['route_id', "agency_raw_name",'route_long_name']], how="left", on=["agency_raw_name", "route_id"]
         )
 
         # output dataframe for osmnx success
@@ -1176,11 +1296,22 @@ class Transit(object):
 
                     shape_polygon = Polygon(zip(lon_list, lat_list))
 
+                links_within_polygon_gdf = links_gdf.copy()
+
+                if "assign_group" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["assign_group"] = 0
+                if "bus_only" not in links_within_polygon_gdf.columns:
+                    links_within_polygon_gdf["bus_only"] = 0
+
                 # get roadway links and nodes within bounding box
                 # exclude cycleway and footway
-                links_within_polygon_gdf = links_gdf[
-                    (links_gdf.geometry.within(shape_polygon)) &
-                    (links_gdf.drive_access == 1)
+                links_within_polygon_gdf = links_within_polygon_gdf[
+                    (links_within_polygon_gdf.geometry.within(shape_polygon)) &
+                    ((links_within_polygon_gdf.drive_access == 1)|
+                    (links_within_polygon_gdf.drive_access == "1")|
+                    (links_within_polygon_gdf.bus_only == 1)|
+                    (links_within_polygon_gdf.bus_only == "1")) 
+                    & (links_within_polygon_gdf.assign_group<100)
                 ].copy()
                 nodes_within_polygon_gdf = nodes_gdf[
                     nodes_gdf['shst_node_id'].isin(
@@ -1196,7 +1327,7 @@ class Transit(object):
                 ].copy()
 
                 # get the links that are within stop buffer
-                good_links_list = self.get_good_link_for_trip(trip_stops_df)
+                good_links_list = self.get_good_link_for_trip(shape_df)
 
                 # update link weights
                 links_within_polygon_gdf["length_weighted"] = np.where(
@@ -1205,10 +1336,30 @@ class Transit(object):
                     links_within_polygon_gdf["length"] * non_good_links_penalty,
                 )
 
-                # apply ft penalty
-                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(ft_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(ft_penalty["default"], inplace=True)
+                route_long_name = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_long_name'].iloc[0]
 
+                route_id = bus_trip_df[
+                    (bus_trip_df['agency_raw_name'] == agency_raw_name) &
+                    (bus_trip_df['trip_id'] == trip_id)
+                ]['route_id'].iloc[0]
+
+                if ("express" in str(route_long_name)) or (int(route_id) > 99):
+                    link_penalty = ft_penalty_suburban
+                else:
+                    link_penalty = ft_penalty
+
+                # apply ft penalty
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["roadway"].map(link_penalty)
+                links_within_polygon_gdf["ft_penalty"].fillna(link_penalty["default"], inplace=True)
+                # bus_only link
+                links_within_polygon_gdf["ft_penalty"] = (links_within_polygon_gdf["ft_penalty"] * np.where(
+                    ((links_within_polygon_gdf["bus_only"]==1) | (links_within_polygon_gdf["bus_only"]=="1")), 
+                    0.5, 
+                    1)
+                )
                 links_within_polygon_gdf["length_weighted"] = (
                     links_within_polygon_gdf["length_weighted"] * links_within_polygon_gdf["ft_penalty"]
                 )
@@ -1341,7 +1492,7 @@ class Transit(object):
     def match_gtfs_shapes_to_shst(
         self,
         path: Optional[str] = None,
-        multithread_shst_match: bool=True
+        multithread_shst_match: bool=False
     ):
         """
         1. call the method that matches gtfs shapes to shst,
@@ -1455,7 +1606,7 @@ class Transit(object):
     def _match_gtfs_shapes_to_shst(
         self,
         path: str,
-        multithread_shst_match: bool=True
+        multithread_shst_match: bool=False
     ):
         """
         1. write out geojson from gtfs shapes for shst match,
@@ -1546,7 +1697,7 @@ class Transit(object):
 
     def route_bus_trip(
         self,
-        multithread_shst_match: bool = True,
+        multithread_shst_match: bool = False,
         multithread_shortest_path: bool = False
     ):
         """
@@ -1559,8 +1710,11 @@ class Transit(object):
         # route using shortest path
         if self.trip_osm_link_df is None:
             self.route_gtfs_using_shortest_path()
+            print(self.trip_osm_link_df.head())
             trip_osm_link_gdf = gpd.GeoDataFrame(
-                self.trip_osm_link_df, crs=self.roadway_network.links_df.crs
+                self.trip_osm_link_df,
+                geometry=self.trip_osm_link_df['geometry'],
+                crs=self.roadway_network.links_df.crs
             )
 
             if len(self.trip_osm_link_df) > 0:
@@ -1570,7 +1724,7 @@ class Transit(object):
                 )
 
         # route using shts match
-        if self.trip_shst_link_df is None:
+        if (self.trip_shst_link_df is None) and self.enable_shst_match:
             self.match_gtfs_shapes_to_shst(multithread_shst_match = multithread_shst_match)
 
         # get route type for trips, get bus trips
@@ -1592,35 +1746,36 @@ class Transit(object):
             )
         )
 
-        trip_shst_link_df = self.trip_shst_link_df.copy()
+        if self.enable_shst_match:
+            trip_shst_link_df = self.trip_shst_link_df.copy()
 
-        if len(trip_shst_link_df) > 0:
-            # keep bus shapes from shst match
-            trip_shst_link_df = trip_shst_link_df[
-                (
-                    trip_shst_link_df.agency_shape_id.isin(
-                        bus_trip_df.agency_shape_id.unique()
+            if len(trip_shst_link_df) > 0:
+                # keep bus shapes from shst match
+                trip_shst_link_df = trip_shst_link_df[
+                    (
+                        trip_shst_link_df.agency_shape_id.isin(
+                            bus_trip_df.agency_shape_id.unique()
+                        )
+                    )
+                ]
+
+                trip_shst_link_df["method"] = "shst match"
+
+                RanchLogger.info(
+                    "shst matched {} bus shapes, {} bus trips".format(
+                        trip_shst_link_df.agency_shape_id.nunique(),
+                        len(trip_shst_link_df.groupby(["agency_raw_name", "trip_id"]).count()),
                     )
                 )
-            ]
-
-            trip_shst_link_df["method"] = "shst match"
-
-            RanchLogger.info(
-                "shst matched {} bus shapes, {} bus trips".format(
-                    trip_shst_link_df.agency_shape_id.nunique(),
-                    len(trip_shst_link_df.groupby(["agency_raw_name", "trip_id"]).count()),
+            else:
+                RanchLogger.info(
+                    "shst matched 0 bus shapes, 0 bus trips"
                 )
-            )
-        else:
-            RanchLogger.info(
-                "shst matched 0 bus shapes, 0 bus trips"
-            )
 
-        if len(self.trip_osm_link_df) == 0:
-            RanchLogger.info('in the remaining gtfs shapes, shorteset path method matched 0 bus shapes')
-            self.bus_trip_link_df = trip_shst_link_df
-            return
+            if len(self.trip_osm_link_df) == 0:
+                RanchLogger.info('in the remaining gtfs shapes, shorteset path method matched 0 bus shapes')
+                self.bus_trip_link_df = trip_shst_link_df
+                return
 
         # keep bus shapes in shortest path routing that are not in shst match
         trip_osm_link_df = self.trip_osm_link_df.copy()
@@ -1630,15 +1785,16 @@ class Transit(object):
             + trip_osm_link_df["shape_id"].astype(str)
         )
 
-        if len(trip_shst_link_df) > 0:
+        if self.enable_shst_match:
+            if len(trip_shst_link_df) > 0:
 
-            trip_osm_link_df = trip_osm_link_df[
-                ~(
-                    trip_osm_link_df.agency_shape_id.isin(
-                        trip_shst_link_df.agency_shape_id.unique()
+                trip_osm_link_df = trip_osm_link_df[
+                    ~(
+                        trip_osm_link_df.agency_shape_id.isin(
+                            trip_shst_link_df.agency_shape_id.unique()
+                        )
                     )
-                )
-            ]
+                ]
 
         trip_osm_link_df['method'] = 'shortest path'
         
@@ -1647,12 +1803,13 @@ class Transit(object):
             len(trip_osm_link_df.groupby(['agency_raw_name', 'trip_id']).count()))
         )
 
-        if len(trip_shst_link_df) > 0:
-            bus_trip_link_df = pd.concat(
-                [trip_osm_link_df, trip_shst_link_df[trip_osm_link_df.columns]],
-                sort=False,
-                ignore_index=True,
-            )
+        if self.enable_shst_match:
+            if len(trip_shst_link_df) > 0:
+                bus_trip_link_df = pd.concat(
+                    [trip_osm_link_df, trip_shst_link_df[trip_osm_link_df.columns]],
+                    sort=False,
+                    ignore_index=True,
+                )
         else:
             bus_trip_link_df = trip_osm_link_df
 

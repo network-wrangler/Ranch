@@ -130,7 +130,17 @@ def ox_graph(nodes_df, links_df):
     graph_links["id"] = graph_links["shstReferenceId"]
     graph_links["key"] = graph_links["shstReferenceId"]
 
-    G = ox.utils_graph.graph_from_gdfs(graph_nodes, graph_links)
+    try:
+        G = ox.graph_from_gdfs(graph_nodes, graph_links)
+    except AttributeError:
+        try:
+            # ox 1.7.1
+            graph_links.set_index(["u", "v", "key"], inplace=True)
+            G = ox.utils_graph.graph_from_gdfs(graph_nodes, graph_links)
+        except AttributeError:
+             RanchLogger.debug(
+                "Please try a different version of your OSMNX package.Version 0.15.1 is recommended."
+            )
 
     return G
 
@@ -605,6 +615,16 @@ def buffer1(polygon):
 def buffer2(polygon):
     return polygon.minimum_rotated_rectangle
 
+
+def line_buffer(line, buffer_dist):
+    line_proj, crs_utm = project_geometry(line, to_crs=CRS('epsg:3857'))
+    line_proj_buff = line_proj.buffer(buffer_dist)
+    line_buff, _ = project_geometry(line_proj_buff, 
+                                    crs=CRS('epsg:3857'),
+                                    to_latlong=True
+    )
+
+    return line_buff
 
 def getAngle(a, b, c):
     ang = math.degrees(
