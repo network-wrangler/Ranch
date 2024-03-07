@@ -5,6 +5,7 @@ import pytest
 
 import ranch
 
+
 @pytest.mark.osm
 def test_osmnx_extraction(request):
     """
@@ -16,6 +17,8 @@ def test_osmnx_extraction(request):
     print("\n--Starting:", request.node.name)
 
     ranch.run_osmnx_extraction(
-        input_polygon_file = os.path.join(root_dir, "data", "external", "sharedstreets_extract", "sanjoaquin.shp"),
-        output_dir = os.path.join(root_dir, "data", "external", "osmnx_extract")
+        input_polygon_file=os.path.join(
+            root_dir, "data", "external", "sharedstreets_extract", "sanjoaquin.shp"
+        ),
+        output_dir=os.path.join(root_dir, "data", "external", "osmnx_extract"),
     )
