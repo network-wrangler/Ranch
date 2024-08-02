@@ -1,5 +1,6 @@
 lark-parser
 jupyter
+pywin32 == 306
 notebook
 numpy
 pandas > 1.0
