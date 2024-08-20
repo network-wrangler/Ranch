@@ -380,6 +380,9 @@ def generate_centroid_connectors_shape(zone_loading_node_df):
         columns={"osm_node_id": "u", "model_node_id_x": "A", "model_node_id_y": "B"}
     )
 
+    if ("A" not in new_cc_gdf.columns ) and ("B" not in new_cc_gdf.columns):
+        new_cc_gdf = new_cc_gdf.rename(columns={"X": "A", "Y": "B"})
+
     new_cc_gdf = new_cc_gdf[
         ["A", "B", "u", "fromIntersectionId", "shstGeometryId", "id", "geometry"]
     ]
@@ -667,7 +670,7 @@ def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_i
         centroid = zone_cc_gdf.c_point.iloc[0]
 
         # if the zone has less than 4 cc, keep all
-        if len(zone_cc_gdf) <= num_connectors_per_centroid:
+        if len(zone_cc_gdf) <= 4:
             keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort=False, ignore_index=True)
 
         # if the zone has more than 4 cc
