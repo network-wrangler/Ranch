@@ -130,7 +130,17 @@ def ox_graph(nodes_df, links_df):
     graph_links["id"] = graph_links["shstReferenceId"]
     graph_links["key"] = graph_links["shstReferenceId"]
 
-    G = ox.utils_graph.graph_from_gdfs(graph_nodes, graph_links)
+    try:
+        G = ox.graph_from_gdfs(graph_nodes, graph_links)
+    except AttributeError:
+        try:
+            # ox 1.7.1
+            graph_links.set_index(["u", "v", "key"], inplace=True)
+            G = ox.utils_graph.graph_from_gdfs(graph_nodes, graph_links)
+        except AttributeError:
+            RanchLogger.debug(
+                "Please try a different version of your OSMNX package.Version 0.15.1 is recommended."
+            )
 
     return G
 
@@ -147,54 +157,50 @@ def geodesic_point_buffer(lat, lon, meters):
     buf = Point(0, 0).buffer(meters)  # distance in metres
     return Polygon(transform(project, buf).exterior.coords[:])
 
-def find_closest_node(
-        node_df,
-        node_candidates_df,
-        unique_id: list
-    ):
-        
+
+def find_closest_node(node_df, node_candidates_df, unique_id: list):
     """
     find closest node in node_candidates_df for each node in node_df
-    
+
     Parameters:
     ------------
     node_df
     node_candidates_df
-    
+
     return
     ------------
     stops with drive nodes id
     """
 
     # convert crs
-    node_df = node_df.to_crs(CRS('epsg:26915'))
-    node_df['X'] = node_df['geometry'].apply(lambda p: p.x)
-    node_df['Y'] = node_df['geometry'].apply(lambda p: p.y)
+    node_df = node_df.to_crs(CRS("epsg:3857"))
+    node_df["X"] = node_df["geometry"].apply(lambda p: p.x)
+    node_df["Y"] = node_df["geometry"].apply(lambda p: p.y)
 
-    node_candidates_df = node_candidates_df.to_crs(CRS('epsg:26915'))
-    node_candidates_df['X'] = node_candidates_df.geometry.map(lambda g:g.x)
-    node_candidates_df['Y'] = node_candidates_df.geometry.map(lambda g:g.y)
+    node_candidates_df = node_candidates_df.to_crs(CRS("epsg:3857"))
+    node_candidates_df["X"] = node_candidates_df.geometry.map(lambda g: g.x)
+    node_candidates_df["Y"] = node_candidates_df.geometry.map(lambda g: g.y)
 
     # cKDTree
-    inventory_node_ref = node_candidates_df[['X', 'Y']].values
+    inventory_node_ref = node_candidates_df[["X", "Y"]].values
     tree = cKDTree(inventory_node_ref)
 
     nearest_node_df = pd.DataFrame()
 
     for i in range(len(node_df)):
-        point = node_df.iloc[i][['X', 'Y']].values
-        dd, ii = tree.query(point, k = 1)
-        add_snap_df = gpd.GeoDataFrame(
-            node_candidates_df.iloc[ii]
-            ).transpose().reset_index(drop = True)
+        point = node_df.iloc[i][["X", "Y"]].values
+        dd, ii = tree.query(point, k=1)
+        add_snap_df = (
+            gpd.GeoDataFrame(node_candidates_df.iloc[ii])
+            .transpose()
+            .reset_index(drop=True)
+        )
 
         for c in unique_id:
             add_snap_df[c] = node_df.iloc[i][c]
-        
+
         nearest_node_df = nearest_node_df.append(
-            add_snap_df, 
-            ignore_index=True, 
-            sort=False
+            add_snap_df, ignore_index=True, sort=False
         )
     return nearest_node_df
 
@@ -306,7 +312,6 @@ def find_new_load_point(abm_load_ref_df, all_node):
     new_load_point_gdf = gpd.GeoDataFrame()
 
     for i in range(len(abm_load_ref_df)):
-
         point = abm_load_ref_df.iloc[i][["X", "Y"]].values
         c_id = abm_load_ref_df.iloc[i]["c"]
         n_neigh = abm_load_ref_df.iloc[i]["osm_num_load"]
@@ -419,7 +424,6 @@ def consolidate_cc(
     new_walk_cc=pd.DataFrame(),
     new_bike_cc=pd.DataFrame(),
 ):
-
     link_gdf = link.copy()
     node_gdf = node.copy()
     drive_centroid_gdf = drive_centroid.copy()
@@ -532,7 +536,7 @@ def project_geometry(geometry, crs=None, to_crs=None, to_latlong=False):
         the projected geometry and its new CRS
     """
     if crs is None:
-        crs = {"init": "epsg:4326"}
+        crs = CRS("epsg:4326")
 
     gdf = gpd.GeoDataFrame(geometry=[geometry], crs=crs)
     gdf_proj = project_gdf(gdf, to_crs=to_crs, to_latlong=to_latlong)
@@ -567,7 +571,7 @@ def project_gdf(gdf, to_crs=None, to_latlong=False):
 
     # if to_latlong is True, project the gdf to latlong
     if to_latlong:
-        gdf_proj = gdf.to_crs({"init": "epsg:4326"})
+        gdf_proj = gdf.to_crs(CRS("epsg:4326"))
         # utils.log(f"Projected GeoDataFrame to {settings.default_crs}")
 
     # else if to_crs was passed-in, project gdf to this CRS
@@ -607,6 +611,16 @@ def buffer1(polygon):
 
 def buffer2(polygon):
     return polygon.minimum_rotated_rectangle
+
+
+def line_buffer(line, buffer_dist):
+    line_proj, crs_utm = project_geometry(line, to_crs=CRS("epsg:3857"))
+    line_proj_buff = line_proj.buffer(buffer_dist)
+    line_buff, _ = project_geometry(
+        line_proj_buff, crs=CRS("epsg:3857"), to_latlong=True
+    )
+
+    return line_buff
 
 
 def getAngle(a, b, c):
@@ -659,7 +673,6 @@ def haversine_distance(origin: list, destination: list, units="miles"):
 
 
 def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_id: str):
-
     keep_cc_gdf = pd.DataFrame()
 
     for c in all_cc_link_gdf[zone_id].unique():
@@ -675,7 +688,6 @@ def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_i
 
         # if the zone has more than 4 cc
         else:
-
             zoneUnique = []
 
             zoneCandidate = zone_cc_gdf["ld_point"].to_list()

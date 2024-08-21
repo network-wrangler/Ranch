@@ -119,19 +119,35 @@ class Parameters:
         }
 
         self.transit_routing_parameters = {
-            "good_links_buffer_radius": 200,
-            "non_good_links_penalty": 5,
-            "bad_stops_buffer_radius": 100,
+            "good_links_buffer_radius": 50,
+            "non_good_links_penalty": 10,
+            "bad_stops_buffer_radius": 120,
             "ft_penalty": {
                 "residential": 2,
-                "service": 3,
+                "service": 2.5,
                 "default": 1,
-                "motorway": 0.9,
+                "motorway_link": 1.5,
+                "motorway": 0.8,
+            },
+        }
+
+        self.transit_routing_parameters_suburban = {
+            "good_links_buffer_radius": 50,
+            "non_good_links_penalty": 10,
+            "bad_stops_buffer_radius": 120,
+            "ft_penalty": {
+                "residential": 2,
+                "service": 2.5,
+                "default": 1,
+                "motorway_link": 0.8,
+                "motorway": 0.7,
             },
         }
 
         self.standard_crs = CRS("epsg:4326")
         # do not convert if alt_standard_crs
         self.alt_standard_crs = CRS("epsg:4269")
+
+        self.model_centroid_node_id_reserve = 3100
 
         self.__dict__.update(kwargs)

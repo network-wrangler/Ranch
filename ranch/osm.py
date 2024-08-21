@@ -15,7 +15,6 @@ __all__ = ["run_osmnx_extraction"]
 
 
 def run_osmnx_extraction(input_polygon_file: str, output_dir: str):
-
     """
     run osmnx extraction with input polygon
 

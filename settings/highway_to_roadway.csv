@@ -30,3 +30,5 @@ closed:path,cycleway,13
 other,cycleway,13
 access,residential,11
 socail_path,cycleway,13
+rest_area,service,12
+bus_guideway,service,12
