@@ -1015,6 +1015,19 @@ class Roadway(object):
                     "Missing taz node file, will use input taz polygon centroid"
                 )
 
+                if "county_gdf" not in self.__dict__.keys():
+                    print('counhty not initialised')
+                    self.county_gdf = gpd.read_file(r"\\corp.pbwan.net\us\CentralData\DCCLDA00\Standard\sag\projects\MTC\31000152\Network_Rebuild\LP_Local_folders\data\external\county_boundaries\county.shp")
+                    self.county_variable_name = "NAME"
+
+
+                taz_polygon_gdf = gpd.sjoin(
+                    taz_polygon_gdf,
+                    self.county_gdf[['geometry', self.county_variable_name]],
+                    how = 'left',
+                    predicate = 'intersects'
+                )
+
                 if "county" not in taz_polygon_gdf.columns:
                     taz_polygon_gdf = gpd.sjoin(
                         taz_polygon_gdf,
@@ -1101,7 +1114,7 @@ class Roadway(object):
                     "Missing maz node file, will use input maz polygon centroid"
                 )
 
-                maz_node_gdf = maz_polygon_gdf["geometry"].representative_centroids()
+                maz_node_gdf = maz_polygon_gdf["geometry"].centroid
 
             # convert to lat-long
             maz_polygon_gdf = maz_polygon_gdf.to_crs(self.parameters.standard_crs)
@@ -1152,7 +1165,8 @@ class Roadway(object):
         # geometries (not reference) - good intersections
 
         taz_good_intersection_df = Roadway.get_nodes_in_zones(
-            node_two_geometry_df, taz_polygon_df
+            node_two_geometry_df.drop(columns=["index_left", "index_right"], errors="ignore"), 
+            taz_polygon_df.drop(columns=["index_left", "index_right"], errors="ignore")
         )
 
         # step 3
@@ -1419,6 +1433,10 @@ class Roadway(object):
             nodes_gdf: nodes geo data frame, points
             zones_gdf: zones geo data frame, polygons
         """
+
+        nodes_gdf = nodes_gdf.drop(columns=["index_left", "index_right"], errors="ignore") 
+        zones_gdf = zones_gdf.drop(columns=["index_left", "index_right"], errors="ignore")
+
         polygon_buffer_gdf = zones_gdf.copy()
 
         polygon_buffer_gdf["geometry_buffer"] = polygon_buffer_gdf["geometry"].apply(
