@@ -162,8 +162,10 @@ class Roadway(object):
 
         shst_without_osm_metadata_df["forward"] = 1
 
-        shst_without_osm_metadata_df = shst_without_osm_metadata_df.append(
-            shst_without_osm_metadata_backward_df, sort=False, ignore_index=True
+        shst_without_osm_metadata_df = pd.concat(
+            [shst_without_osm_metadata_df, shst_without_osm_metadata_backward_df],
+            sort=False,
+            ignore_index=True,
         )
 
         shst_without_osm_metadata_df.rename(
@@ -180,8 +182,8 @@ class Roadway(object):
             "id"
         ]
 
-        link_gdf = link_gdf.append(
-            shst_without_osm_metadata_df, sort=False, ignore_index=True
+        link_gdf = pd.concat(
+            [link_gdf, shst_without_osm_metadata_df], sort=False, ignore_index=True
         )
 
         # calculate roadway property
@@ -408,6 +410,7 @@ class Roadway(object):
 
         # drop duplicates
         point_gdf.drop_duplicates(subset=["shst_node_id"], inplace=True)
+        point_gdf.set_crs(standard_crs, inplace=True)
 
         point_gdf = GeoDataFrame(point_gdf, crs=standard_crs)
 

@@ -135,6 +135,7 @@ def run_shst_match(
     else:
         output_dir = output_dir
 
+    # read input netwrork file to network_gdf
     if input_network_file:
         filename, file_extension = os.path.splitext(input_network_file)
         if file_extension in [".shp", ".geojson"]:
@@ -161,6 +162,7 @@ def run_shst_match(
         network_gdf.crs = standard_crs
 
     # convert to lat-long
+    # get crs
     if network_gdf.crs != standard_crs:
         network_gdf = network_gdf.to_crs(alt_standard_crs)
         network_gdf.to_file(input_network_file, driver="GeoJSON")
@@ -213,6 +215,7 @@ def run_shst_match(
         network_gdf.to_file(
             os.path.join(output_dir, filename + ".full.geojson"), driver="GeoJSON"
         )
+    assert False
 
     if custom_match_option:
         match_option = custom_match_option
