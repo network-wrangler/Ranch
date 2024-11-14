@@ -41,8 +41,8 @@ def conflate_line_segments(
     conflation_criteria: Union[Callable, Literal["geometry"]] = "geometry",
     match_if_directions_reversed: bool = True,
     minimum_segment_overlap: float = 5,
-    base_attribute_columns: Union[list[str], dict[str, str]] = [],
-    join_attribute_columns: Union[list[str], dict[str, str]] = [],
+    base_attribute_columns: Union[list[str], dict[str, str]] = None,
+    join_attribute_columns: Union[list[str], dict[str, str]] = None,
     conflation_options: dict[
         str : tuple[
             str,
@@ -52,7 +52,75 @@ def conflate_line_segments(
     ] = dict(),
     detailed_output: bool = False,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    """"""
+    """
+    Conflate attributes from a join network to a base network based on specified criteria.
+
+    This function takes two GeoDataFrames representing line segments (e.g., road segments) 
+    and conflates the attributes of the join network to the base network. The conflation 
+    process is controlled by various parameters that determine how segments are matched 
+    and which attributes are transferred.
+
+    Parameters:
+        base_network (gpd.GeoDataFrame): The base GeoDataFrame containing line segments 
+                                         to which attributes will be joined.
+        join_network (gpd.GeoDataFrame): The join GeoDataFrame containing line segments 
+                                         from which attributes will be sourced.
+        max_matching_distance (float): The maximum distance within which segments from 
+                                       the join network can be matched to the base network
+                                       at closest approach.
+        segment_mapping_method (Literal["meter_to_meter", "seg_to_seg", "all_candidates", 
+                                        "all_potential_matches"], optional): The method 
+                                        used to map segments between networks. Defaults 
+                                        to "meter_to_meter".
+                                        seg_to_seg: segments are matched segment wise, 
+                                        do not use this option if the join network is 
+                                        segmented differently to the base network.
+                                        all_candidates: returns the segments and matching
+                                        criteria scores of all segments within 
+                                        max_matching_distance
+                                        all_potential_matches: returns all segments with a 
+                                        high score of matching
+                                        meter_to_meter: asserts a 1 to 1 relationship 
+                                        between the length of each segment 
+        conflation_criteria (Union[Callable, Literal["geometry"]], optional): Criteria used 
+                                        to determine if segments should be conflated based
+                                        on geometry and other attributes. This is a 
+                                        callable function on the joined attributes of the
+                                        final network and should return a final score
+                                        be a callable or "geometry". Defaults to "geometry"
+                                        where geometry is the only criteria.
+        match_if_directions_reversed (bool, optional): If True, allows matching if their
+                                        linestring directions of linestrings are reversed. 
+                                        Defaults to True.
+        minimum_segment_overlap (float, optional): The minimum overlap length between 
+                                        segments required for conflation. Defaults to 5 m.
+        base_attribute_columns (Union[list[str], dict[str, str]], optional): List or dict 
+                                        specifying which attribute columns to retain from 
+                                        the base network. Defaults to keeping all 
+                                        columns.
+        join_attribute_columns (Union[list[str], dict[str, str]], optional): List or dict 
+                                        specifying which attribute columns to transfer 
+                                        from the join network. Defaults to keeping all 
+                                        columns.
+        conflation_options (dict[str, tuple[str, str, Union[Literal["term_freq_similarity", 
+                                        "difference", "equals"], Callable]]], optional): 
+                                        Dictionary specifying conflation options for 
+                                        attribute columns. Defaults to an empty dictionary.
+        detailed_output (bool, optional): If True, returns a more detailed output containing
+                                        processing steps in dataframe for
+                                        debugging. Defaults to False.
+
+    Returns:
+        tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]: A tuple containing two GeoDataFrames:
+            - The first GeoDataFrame is the base network with conflated attributes.
+            - The second GeoDataFrame provides details of the conflation process if 
+              detailed_output is True, otherwise it is an empty GeoDataFrame.
+    """
+    if base_attribute_columns is None:
+        base_attribute_columns = []
+    if join_attribute_columns is None:
+        join_attribute_columns = []
+    
     # Pre baked algorithms to call upon to make it easier to conflate
     conflation_algorithms = {
         # "edit_distance": lambda x1, x2: damerauLevenshtein(x1, x2, similarity=False),
