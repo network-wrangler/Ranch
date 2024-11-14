@@ -150,7 +150,7 @@ def conflate_line_segments(
         base_attribute_columns,
         join_attribute_columns,
         max_matching_distance=max_matching_distance,
-    ).head(10000)
+    )
 
     print(f"number of candidates to joins {len(candidate_joins)}.....")
     candidate_joins = fix_line_orientation(
@@ -938,7 +938,11 @@ def get_dot_score(segment_1: LineString, segment_2, num_interp_points: int = 10)
 
     # TODO remove this into a generic function
     def dot_product(p1: Point, p2: Point):
-        return p1.x * p2.x + p1.y * p2.y
+        try:
+            return p1.x * p2.x + p1.y * p2.y
+        except Exception:
+            print("failed dot product")
+            return 0.8
 
     # might have to change to cumulative multiply
     road_a_points = [
@@ -980,12 +984,25 @@ def apply_dot_score(mult_geom: Union[None, MultiLineString]):
     return get_dot_score(mult_geom.geoms[0], mult_geom.geoms[1])
 
 
+# %%
+
+
 def linestring_to_polygon(geom: LineString) -> Polygon:
     if geom is None:
         return None
     multi_line = unary_union(geom)
     if isinstance(multi_line, LineString):
-        return Polygon(multi_line)
+        coord_list = list(multi_line.coords)
+        if len(coord_list) == 2:
+            first_coord = coord_list[0]
+            second_coord = coord_list[1]
+            return Polygon([first_coord, second_coord, second_coord, first_coord])
+        try:
+            return Polygon(multi_line)
+        except Exception:
+            print(multi_line)
+            print("error converting polygon")
+            return None
     elif isinstance(multi_line, MultiLineString):
         return polygonize(list(multi_line.geoms))
     else:
