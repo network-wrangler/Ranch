@@ -10,10 +10,13 @@ from shapely.geometry import (
     MultiPoint,
     GeometryCollection,
 )
+
+from .logger import RanchLogger
+
 from shapely.ops import nearest_points, unary_union, snap, split
 from shapely import concave_hull, convex_hull, dwithin, polygonize
 
-from typing import Union, Callable, Literal
+from typing import Union, Callable, Literal, Optional
 from itertools import combinations
 from tqdm import tqdm
 
@@ -37,7 +40,7 @@ def conflate_line_segments(
     *,
     segment_mapping_method: Literal[
         "meter_to_meter", "seg_to_seg", "all_candidates", "all_potential_matches"
-    ] = "meter_to_meter",
+    ] = "seg_to_seg",
     conflation_criteria: Union[Callable, Literal["geometry"]] = "geometry",
     match_if_directions_reversed: bool = True,
     minimum_segment_overlap: float = 5,
@@ -51,6 +54,7 @@ def conflate_line_segments(
         ]
     ] = dict(),
     detailed_output: bool = False,
+    test_smaller_number_rows=None,
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
     Conflate attributes from a join network to a base network based on specified criteria.
@@ -104,8 +108,7 @@ def conflate_line_segments(
                                         columns.
         conflation_options (dict[str, tuple[str, str, Union[Literal["term_freq_similarity",
                                         "difference", "equals"], Callable]]], optional):
-                                        Dictionary specifying conflation options for
-                                        attribute columns. Defaults to an empty dictionary.
+                                        dictionary for additional criteria to .
         detailed_output (bool, optional): If True, returns a more detailed output containing
                                         processing steps in dataframe for
                                         debugging. Defaults to False.
@@ -116,11 +119,11 @@ def conflate_line_segments(
             - The second GeoDataFrame provides details of the conflation process if
               detailed_output is True, otherwise it is an empty GeoDataFrame.
     """
+
     if base_attribute_columns is None:
         base_attribute_columns = []
     if join_attribute_columns is None:
         join_attribute_columns = []
-
     # Pre baked algorithms to call upon to make it easier to conflate
     conflation_algorithms = {
         # "edit_distance": lambda x1, x2: damerauLevenshtein(x1, x2, similarity=False),
@@ -150,15 +153,15 @@ def conflate_line_segments(
         base_attribute_columns,
         join_attribute_columns,
         max_matching_distance=max_matching_distance,
-    )
+    ).head(test_smaller_number_rows)
 
-    print(f"number of candidates to joins {len(candidate_joins)}.....")
+    RanchLogger.info(f"number of candidates to joins {len(candidate_joins)}.....")
     candidate_joins = fix_line_orientation(
         candidate_joins,
         match_if_directions_reversed=match_if_directions_reversed,
     )
 
-    print(f"after line orientation {len(candidate_joins)}")
+    RanchLogger.info(f"after line orientation {len(candidate_joins)}")
     spatial_similarity_scores = difference_between_shapes(
         candidate_joins,
         minimum_segment_overlap=minimum_segment_overlap,
@@ -276,6 +279,9 @@ def meter_to_meter_mapping(
     """Matching the best meter of network 1 to the best meter of join network, IE 1
     1 meter of base network cannot be joined to more than 1 meter of join network
     per segment"""
+    raise NotImplementedError(
+        "meter_to_meter conflation option has not been fully implemented, use segment to segment for now"
+    )
     # could probably do this after mapping all candidates
     # get the length of the whole segment to be joined
     # get the length of the subsegments that were matched
@@ -465,9 +471,13 @@ def coerce_geom_to_linestring(geo_series: gpd.GeoSeries) -> gpd.GeoSeries:
     """
     Coerces GeoSeries so that inputs are linestrings.
     """
-
     geom_type = geo_series.type.unique()
-    assert len(geom_type) == 1, "Different Geometries in GeoSeries Passed"
+
+    if len(geom_type) != 1:
+        raise ValueError(
+            f"Expected all geometries to be of same type, but multiple types {geom_type} were found"
+        )
+
     geom_type = geom_type[0]
 
     # If the geometries are already LineStrings, return the original GeoSeries
@@ -596,15 +606,15 @@ def difference_between_shapes(
     assumes - there are no - self intersecting line segment geometries
     """
     # ---------- Make all segments Face the correct direction---------------
-    print("matching geoms direcions")
+    RanchLogger.info("matching geoms direcions")
 
-    print("processing geom - step 1")
+    RanchLogger.info("processing geom - step 1")
     # -------- Find Relevant Swept Area between Two Road Segments -------
     # TODO add logging points in all these steps
     geoms_to_compare = _add_closest_end_points(geoms_to_compare)
     geoms_to_compare = mark_important_points(geoms_to_compare)
 
-    print("finding boundary of polygon")
+    RanchLogger.info("Finding Boundary of Polygon")
     polygon_boundaries = geoms_to_compare.apply(process_row_for_polygon, axis=1)
     geoms_to_compare["geometry"] = polygon_boundaries.apply(
         lambda x: x.geoms[0:2] if x is not None else None
@@ -613,11 +623,11 @@ def difference_between_shapes(
     # TODO optimise this step, should be run in < 5 seconds
     # tecnically we dont need this step, but without it linestring_to_poly fails
     # with some examples without this stepsegments_mapped
-    print("orienting polygons and finding area")
+    RanchLogger.info("orienting polygons and finding area")
     oriented_boundary = polygon_boundaries.apply(orient_line_strings)
     spanned_area = gpd.GeoSeries(oriented_boundary.apply(linestring_to_polygon)).area
 
-    print("post processing for output")
+    RanchLogger.info("post processing for output")
     geoms_to_compare["spanned_area"] = spanned_area
     geoms_to_compare["dot_score"] = dot_score
     geoms_to_compare["conflation_length"] = get_length_of_convolved_roads(
@@ -762,7 +772,7 @@ def mark_important_points(geom_with_end_points: pd.DataFrame) -> pd.DataFrame:
 
 
 def process_row_for_polygon(
-    row: pd.Series, snap_tolerance: float = 0.01
+    row: Union[pd.Series, tuple], snap_tolerance: float = 0.01
 ) -> MultiLineString:
     """
     processes geometry to create boundary of polygon in terms of a multilinesting
@@ -792,9 +802,8 @@ def process_row_for_polygon(
                 [point for geom in relevant_geoms for point in geom.coords]
             )
         else:
-            raise Exception("Didnt Find Geom in boundary")
+            raise Exception("Did not Find Geometry in boundary")
 
-    # print(row["base_index"])
     base_geom = row["base_geom"]
     match_geom = row["match_geom"]
     points = MultiPoint(
@@ -838,16 +847,6 @@ def process_row_for_polygon(
             LineString(row["end_of_spanned_area"]),
         ]
     )
-
-
-def get_boundary_of_polygon(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    def try_catch_apply(input):
-        try:
-            return process_row_for_polygon(input)
-        except Exception:
-            return np.NAN
-
-    return df.apply(try_catch_apply, axis=1)
 
 
 def orient_line_strings(multi_geom: Union[None, MultiLineString]) -> Polygon:
@@ -895,8 +894,6 @@ def orient_line_strings(multi_geom: Union[None, MultiLineString]) -> Polygon:
             single_linestring = LineString(flattened_list)
             final_linestrings.append(single_linestring)
 
-    # print([g.length for g in final_linestrings])
-
     return min(final_linestrings, key=lambda x: x.length)
 
 
@@ -941,7 +938,9 @@ def get_dot_score(segment_1: LineString, segment_2, num_interp_points: int = 10)
         try:
             return p1.x * p2.x + p1.y * p2.y
         except Exception:
-            print("failed dot product")
+            RanchLogger.error(
+                "Failed dot product score for subsegment, coercing to 0.8"
+            )
             return 0.8
 
     # might have to change to cumulative multiply
@@ -1000,8 +999,9 @@ def linestring_to_polygon(geom: LineString) -> Polygon:
         try:
             return Polygon(multi_line)
         except Exception:
-            print(multi_line)
-            print("error converting polygon")
+            RanchLogger.error(
+                "the geometry {} could not be coerced into a polygon".format(multi_line)
+            )
             return None
     elif isinstance(multi_line, MultiLineString):
         return polygonize(list(multi_line.geoms))

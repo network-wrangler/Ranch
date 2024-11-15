@@ -8,6 +8,7 @@ from .osm import run_osmnx_extraction
 from .parameters import Parameters
 from .roadway import Roadway
 from .sharedstreets import read_shst_extraction, run_shst_extraction, run_shst_match
+from .conflate_linestrings import conflate_line_segments
 from .transit import Transit
 from .utils import link_df_to_geojson, point_df_to_geojson
 
