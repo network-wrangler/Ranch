@@ -615,16 +615,24 @@ def difference_between_shapes(
     geoms_to_compare = mark_important_points(geoms_to_compare)
 
     RanchLogger.info("Finding Boundary of Polygon")
-    polygon_boundaries = geoms_to_compare.apply(process_row_for_polygon, axis=1)
-    geoms_to_compare["geometry"] = polygon_boundaries.apply(
+    # polygon_boundaries = geoms_to_compare.apply(process_row_for_polygon, axis=1)
+    geoms_to_compare["polygon_boundaries"] = [
+        process_row_for_polygon(row_tup) for row_tup in geoms_to_compare.itertuples()
+    ]
+
+    geoms_to_compare["geometry"] = geoms_to_compare["polygon_boundaries"].apply(
         lambda x: x.geoms[0:2] if x is not None else None
     )
-    dot_score = polygon_boundaries.apply(apply_dot_score).clip(lower=0)
+    dot_score = (
+        geoms_to_compare["polygon_boundaries"].apply(apply_dot_score).clip(lower=0)
+    )
     # TODO optimise this step, should be run in < 5 seconds
     # tecnically we dont need this step, but without it linestring_to_poly fails
     # with some examples without this stepsegments_mapped
     RanchLogger.info("orienting polygons and finding area")
-    oriented_boundary = polygon_boundaries.apply(orient_line_strings)
+    oriented_boundary = geoms_to_compare["polygon_boundaries"].apply(
+        orient_line_strings
+    )
     spanned_area = gpd.GeoSeries(oriented_boundary.apply(linestring_to_polygon)).area
 
     RanchLogger.info("post processing for output")
@@ -741,7 +749,7 @@ def mark_important_points(geom_with_end_points: pd.DataFrame) -> pd.DataFrame:
         adds a new column to the dataframe based on the smallest internal distance
         of any of the columns to compare
         """
-        # fill with non types so pandas does no know how much memory to reserve
+        # fill with None types so pandas doesn't do a stupid memory optimization
         df[final_column_name] = [None] * len(df)
 
         lengths = []
@@ -779,7 +787,7 @@ def process_row_for_polygon(
     primarily focused around trimming the roads about the relevant sections to compare
     """
 
-    def _get_bounding_geom(geoms: MultiLineString, points: MultiPoint):
+    def _get_bounding_geom(split_base_geom: MultiLineString, points: MultiPoint):
         """
         after we split the geometry at a set of points, the only points
         we should include are in either end of the boundary
@@ -789,7 +797,7 @@ def process_row_for_polygon(
 
         relevant_geoms = [
             geom
-            for geom in geoms.geoms
+            for geom in split_base_geom.geoms
             if (geom.boundary.geoms[0] in points.geoms)
             and (geom.boundary.geoms[1] in points.geoms)
         ]
@@ -804,47 +812,46 @@ def process_row_for_polygon(
         else:
             raise Exception("Did not Find Geometry in boundary")
 
-    base_geom = row["base_geom"]
-    match_geom = row["match_geom"]
-    points = MultiPoint(
-        [
-            row["start_of_spanned_area"][0],
-            row["start_of_spanned_area"][1],
-            row["end_of_spanned_area"][0],
-            row["end_of_spanned_area"][1],
-        ]
-    )
-    list_points = list(points.geoms)
+    base_geom = row.base_geom
+    match_geom = row.match_geom
+    list_points = [
+        row.start_of_spanned_area[0],
+        row.start_of_spanned_area[1],
+        row.end_of_spanned_area[0],
+        row.end_of_spanned_area[1],
+    ]
+    points = MultiPoint(list_points)
+
     if dwithin(
-        row["start_of_spanned_area"][0],
+        row.start_of_spanned_area[0],
         MultiPoint(list_points[2:4]),
         snap_tolerance * 2,
     ) or dwithin(
-        row["start_of_spanned_area"][1],
+        row.start_of_spanned_area[1],
         MultiPoint(list_points[2:4]),
         snap_tolerance * 2,
     ):
-        # one link is entirely past teh end of another link and
+        # one link is entirely past the end of another link and
         # the mapping length is zero, we can ignore this case
         return None
 
-    for point in points.geoms:
+    for point in list_points:
         base_geom = snap(base_geom, point, snap_tolerance)
         match_geom = snap(match_geom, point, snap_tolerance)
     # return gpd.GeoSeries([base_geom, match_geom, points]).explore()
 
     split_base = split(base_geom, points)
-    relevant_base = _get_bounding_geom(split_base, points)
-
     split_match = split(match_geom, points)
+
+    relevant_base = _get_bounding_geom(split_base, points)
     relevant_match = _get_bounding_geom(split_match, points)
 
     return MultiLineString(
         [
             relevant_base,
             relevant_match,
-            LineString(row["start_of_spanned_area"]),
-            LineString(row["end_of_spanned_area"]),
+            LineString(row.start_of_spanned_area),
+            LineString(row.end_of_spanned_area),
         ]
     )
 
