@@ -199,9 +199,11 @@ def find_closest_node(node_df, node_candidates_df, unique_id: list):
         for c in unique_id:
             add_snap_df[c] = node_df.iloc[i][c]
 
-        nearest_node_df = nearest_node_df.append(
-            add_snap_df, ignore_index=True, sort=False
+        nearest_node_df = pd.concat(
+            [nearest_node_df, add_snap_df], 
+            ignore_index=True
         )
+
     return nearest_node_df
 
 
@@ -352,8 +354,9 @@ def find_new_load_point(abm_load_ref_df, all_node):
             new_load_point_gdf = add_gdf.copy()
 
         else:
-            new_load_point_gdf = new_load_point_gdf.append(
-                add_gdf, ignore_index=True, sort=False
+            new_load_point_gdf = pd.concat(
+                [new_load_point_gdf, add_gdf], 
+                ignore_index=True
             )
 
     return new_load_point_gdf.rename(columns={"geometry": "geometry_ld"})
@@ -681,8 +684,7 @@ def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_i
 
         # if the zone has less than 4 cc, keep all
         if len(zone_cc_gdf) <= num_connectors_per_centroid:
-            keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort=False, ignore_index=True)
-
+            keep_cc_gdf = pd.concat([keep_cc_gdf, zone_cc_gdf], ignore_index=True)
         # if the zone has more than 4 cc
         else:
             zoneUnique = []
@@ -703,7 +705,7 @@ def get_non_near_connectors(all_cc_link_gdf, num_connectors_per_centroid, zone_i
                 zone_cc_gdf.ld_point.isin([tuple(z) for z in zoneUnique])
             ]
 
-            keep_cc_gdf = keep_cc_gdf.append(zone_cc_gdf, sort=False, ignore_index=True)
+            keep_cc_gdf = pd.concat([keep_cc_gdf, zone_cc_gdf], ignore_index=True)
 
     return keep_cc_gdf
 
