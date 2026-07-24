@@ -342,7 +342,7 @@ class Transit(object):
         # add agency_id in routes.txt if missing
         if "agency_id" not in feed.routes.columns:
             if "agency_id" in feed.agency.columns:
-                feed.agency["agency_id"] = feed.agency.agency_id.iloc[0]
+                feed.routes["agency_id"] = feed.agency.agency_id.iloc[0]
 
         # check if shapes are missing in GTFS
         if "shape_id" not in feed.trips.columns:
