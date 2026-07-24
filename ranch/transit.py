@@ -201,12 +201,41 @@ class Transit(object):
         num_most_pattern: int = 1,
         multithread_shst_match: bool = False,
         multithread_shortest_path: bool = False,
+        route_info: pd.DataFrame = None,                                
     ):
         """
         one-call method for transit, instead of calling each sub-module
         """
         self.get_representative_trip_for_route(num_most_pattern)
         self.snap_stop_to_node()
+        agency_df = self.feed.agency.copy()
+
+        if route_info is not None:
+            route_info = route_info.rename(columns={"Mode": "mode"})
+            
+            if "agency_id" not in self.feed.routes.columns:
+                self.feed.routes["agency_id"] = self.feed.agency.iloc[0]["agency_id"]
+            
+            self.feed.routes = pd.merge(
+                self.feed.routes,
+                self.feed.agency[["agency_raw_name", "agency_name"]],
+                how="left",
+                on="agency_raw_name")
+            
+            self.feed.routes["AgencyName_RouteName"] = np.where(
+                self.feed.routes["route_short_name"].notna() & (self.feed.routes["route_short_name"] != ""),
+                self.feed.routes["agency_name"].astype(str) + "_" + self.feed.routes["route_short_name"],
+                self.feed.routes["agency_name"].astype(str) + "_" + self.feed.routes["route_long_name"])
+                
+            self.feed.routes = self.feed.routes.merge(
+                route_info[["AgencyName_RouteName", "mode"]],
+                how="inner",
+                on="AgencyName_RouteName"
+            ).drop_duplicates()
+            
+            self.feed.routes = self.feed.routes.drop(columns=["AgencyName_RouteName", "agency_name"])
+            
+            RanchLogger.info("Mode added to routes.")                                           
 
         route_df = self.feed.routes.copy()
         route_df = pd.merge(
@@ -941,11 +970,24 @@ class Transit(object):
                     (bus_trip_df["agency_raw_name"] == agency_raw_name)
                     & (bus_trip_df["trip_id"] == trip_id)
                 ]["route_id"].iloc[0]
-
-                if ("express" in str(route_long_name)) or (int(route_id) > 99):
-                    link_penalty = ft_penalty_suburban
-                else:
-                    link_penalty = ft_penalty
+                
+                if "mode" in bus_trip_df.columns:
+                    
+                    mode = bus_trip_df[
+                        (bus_trip_df["agency_raw_name"] == agency_raw_name)
+                        & (bus_trip_df["trip_id"] == trip_id)
+                    ]["mode"].iloc[0] 
+    
+                    if ("express" in str(route_long_name) or mode == "XB") :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
+                        
+                else: 
+                    if ("express" in str(route_long_name)) :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
 
                 # apply ft penalty
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
@@ -1328,12 +1370,23 @@ class Transit(object):
             on=["agency_raw_name", "trip_id"],
         )
 
-        bus_trip_df = pd.merge(
-            bus_trip_df,
-            self.feed.routes[["route_id", "agency_raw_name", "route_long_name"]],
-            how="left",
-            on=["agency_raw_name", "route_id"],
-        )
+        if "mode" in self.feed.routes.columns:
+            
+            bus_trip_df = pd.merge(
+                bus_trip_df,
+                self.feed.routes[["route_id", "agency_raw_name", "route_long_name", "mode"]],
+                how="left",
+                on=["agency_raw_name", "route_id"],
+            )
+            
+        else:
+            
+            bus_trip_df = pd.merge(
+                bus_trip_df,
+                self.feed.routes[["route_id", "agency_raw_name", "route_long_name"]],
+                how="left",
+                on=["agency_raw_name", "route_id"],
+            )
 
         # output dataframe for osmnx success
         trip_osm_link_df = pd.DataFrame()
@@ -1461,10 +1514,23 @@ class Transit(object):
                     & (bus_trip_df["trip_id"] == trip_id)
                 ]["route_id"].iloc[0]
 
-                if ("express" in str(route_long_name)) or (int(route_id) > 99):
-                    link_penalty = ft_penalty_suburban
-                else:
-                    link_penalty = ft_penalty
+                if "mode" in bus_trip_df.columns:
+                    
+                    mode = bus_trip_df[
+                        (bus_trip_df["agency_raw_name"] == agency_raw_name)
+                        & (bus_trip_df["trip_id"] == trip_id)
+                    ]["mode"].iloc[0] 
+    
+                    if ("express" in str(route_long_name) or mode == "XB") :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
+                        
+                else: 
+                    if ("express" in str(route_long_name)) :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
 
                 # apply ft penalty
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
@@ -2588,6 +2654,8 @@ class Transit(object):
             on=["agency_raw_name", "route_id"],
         )
 
+        route_df["route_short_name"] = route_df["route_short_name"].fillna("").astype
+        
         route_df.to_csv(os.path.join(path, "routes.txt"), index=False, sep=",")
 
         shape_point_df.to_csv(os.path.join(path, "shapes.txt"), index=False, sep=",")
