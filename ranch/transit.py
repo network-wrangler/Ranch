@@ -200,42 +200,13 @@ class Transit(object):
         self,
         num_most_pattern: int = 1,
         multithread_shst_match: bool = False,
-        multithread_shortest_path: bool = False,
-        route_info: pd.DataFrame = None,                                
+        multithread_shortest_path: bool = False,                              
     ):
         """
         one-call method for transit, instead of calling each sub-module
         """
         self.get_representative_trip_for_route(num_most_pattern)
-        self.snap_stop_to_node()
-        agency_df = self.feed.agency.copy()
-
-        if route_info is not None:
-            route_info = route_info.rename(columns={"Mode": "mode"})
-            
-            if "agency_id" not in self.feed.routes.columns:
-                self.feed.routes["agency_id"] = self.feed.agency.iloc[0]["agency_id"]
-            
-            self.feed.routes = pd.merge(
-                self.feed.routes,
-                self.feed.agency[["agency_raw_name", "agency_name"]],
-                how="left",
-                on="agency_raw_name")
-            
-            self.feed.routes["AgencyName_RouteName"] = np.where(
-                self.feed.routes["route_short_name"].notna() & (self.feed.routes["route_short_name"] != ""),
-                self.feed.routes["agency_name"].astype(str) + "_" + self.feed.routes["route_short_name"],
-                self.feed.routes["agency_name"].astype(str) + "_" + self.feed.routes["route_long_name"])
-                
-            self.feed.routes = self.feed.routes.merge(
-                route_info[["AgencyName_RouteName", "mode"]],
-                how="inner",
-                on="AgencyName_RouteName"
-            ).drop_duplicates()
-            
-            self.feed.routes = self.feed.routes.drop(columns=["AgencyName_RouteName", "agency_name"])
-            
-            RanchLogger.info("Mode added to routes.")                                           
+        self.snap_stop_to_node()                                    
 
         route_df = self.feed.routes.copy()
         route_df = pd.merge(
@@ -244,6 +215,9 @@ class Transit(object):
             how="inner",
             on=["agency_raw_name", "route_id"],
         )
+        mode_col = [col for col in route_df.columns if col.lower() == "mode"]
+        if mode_col:
+            route_df.rename(columns={mode_col[0]: "mode"}, inplace=True)
 
         # check if there is bus routes
         bus_routes_df = route_df[route_df.route_type == 3].copy()
@@ -2654,7 +2628,7 @@ class Transit(object):
             on=["agency_raw_name", "route_id"],
         )
 
-        route_df["route_short_name"] = route_df["route_short_name"].fillna("").astype
+        route_df["route_short_name"] = route_df["route_short_name"].fillna("").astype(str)
         
         route_df.to_csv(os.path.join(path, "routes.txt"), index=False, sep=",")
 
