@@ -132,11 +132,12 @@ def ox_graph(nodes_df, links_df):
 
     try:
         G = ox.graph_from_gdfs(graph_nodes, graph_links)
-    except AttributeError:
+    except (AttributeError, IndexError):
         try:
-            # ox 1.7.1
+            # newer ox versions
+            graph_nodes.set_index(["id"], inplace=True)
             graph_links.set_index(["u", "v", "key"], inplace=True)
-            G = ox.utils_graph.graph_from_gdfs(graph_nodes, graph_links)
+            G = ox.graph_from_gdfs(graph_nodes, graph_links)
         except AttributeError:
             RanchLogger.debug(
                 "Please try a different version of your OSMNX package.Version 0.15.1 is recommended."
