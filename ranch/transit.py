@@ -200,13 +200,13 @@ class Transit(object):
         self,
         num_most_pattern: int = 1,
         multithread_shst_match: bool = False,
-        multithread_shortest_path: bool = False,
+        multithread_shortest_path: bool = False,                              
     ):
         """
         one-call method for transit, instead of calling each sub-module
         """
         self.get_representative_trip_for_route(num_most_pattern)
-        self.snap_stop_to_node()
+        self.snap_stop_to_node()                                    
 
         route_df = self.feed.routes.copy()
         route_df = pd.merge(
@@ -215,6 +215,9 @@ class Transit(object):
             how="inner",
             on=["agency_raw_name", "route_id"],
         )
+        mode_col = [col for col in route_df.columns if col.lower() == "mode"]
+        if mode_col:
+            route_df.rename(columns={mode_col[0]: "mode"}, inplace=True)
 
         # check if there is bus routes
         bus_routes_df = route_df[route_df.route_type == 3].copy()
@@ -313,7 +316,7 @@ class Transit(object):
         # add agency_id in routes.txt if missing
         if "agency_id" not in feed.routes.columns:
             if "agency_id" in feed.agency.columns:
-                feed.agency["agency_id"] = feed.agency.agency_id.iloc[0]
+                feed.routes["agency_id"] = feed.agency.agency_id.iloc[0]
 
         # check if shapes are missing in GTFS
         if "shape_id" not in feed.trips.columns:
@@ -941,11 +944,24 @@ class Transit(object):
                     (bus_trip_df["agency_raw_name"] == agency_raw_name)
                     & (bus_trip_df["trip_id"] == trip_id)
                 ]["route_id"].iloc[0]
-
-                if ("express" in str(route_long_name)) or (int(route_id) > 99):
-                    link_penalty = ft_penalty_suburban
-                else:
-                    link_penalty = ft_penalty
+                
+                if "mode" in bus_trip_df.columns:
+                    
+                    mode = bus_trip_df[
+                        (bus_trip_df["agency_raw_name"] == agency_raw_name)
+                        & (bus_trip_df["trip_id"] == trip_id)
+                    ]["mode"].iloc[0] 
+    
+                    if ("express" in str(route_long_name) or mode == "XB") :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
+                        
+                else: 
+                    if ("express" in str(route_long_name)) :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
 
                 # apply ft penalty
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
@@ -1008,8 +1024,9 @@ class Transit(object):
                 path_osm_link_df["trip_id"] = trip_id
                 path_osm_link_df["agency_raw_name"] = agency_raw_name
 
-                trip_osm_link_df = trip_osm_link_df.append(
-                    path_osm_link_df, ignore_index=True, sort=False
+                trip_osm_link_df = pd.concat(
+                    [trip_osm_link_df, path_osm_link_df], 
+                    ignore_index=True
                 )
 
         # after routing all trips, join with the links
@@ -1327,12 +1344,23 @@ class Transit(object):
             on=["agency_raw_name", "trip_id"],
         )
 
-        bus_trip_df = pd.merge(
-            bus_trip_df,
-            self.feed.routes[["route_id", "agency_raw_name", "route_long_name"]],
-            how="left",
-            on=["agency_raw_name", "route_id"],
-        )
+        if "mode" in self.feed.routes.columns:
+            
+            bus_trip_df = pd.merge(
+                bus_trip_df,
+                self.feed.routes[["route_id", "agency_raw_name", "route_long_name", "mode"]],
+                how="left",
+                on=["agency_raw_name", "route_id"],
+            )
+            
+        else:
+            
+            bus_trip_df = pd.merge(
+                bus_trip_df,
+                self.feed.routes[["route_id", "agency_raw_name", "route_long_name"]],
+                how="left",
+                on=["agency_raw_name", "route_id"],
+            )
 
         # output dataframe for osmnx success
         trip_osm_link_df = pd.DataFrame()
@@ -1460,10 +1488,23 @@ class Transit(object):
                     & (bus_trip_df["trip_id"] == trip_id)
                 ]["route_id"].iloc[0]
 
-                if ("express" in str(route_long_name)) or (int(route_id) > 99):
-                    link_penalty = ft_penalty_suburban
-                else:
-                    link_penalty = ft_penalty
+                if "mode" in bus_trip_df.columns:
+                    
+                    mode = bus_trip_df[
+                        (bus_trip_df["agency_raw_name"] == agency_raw_name)
+                        & (bus_trip_df["trip_id"] == trip_id)
+                    ]["mode"].iloc[0] 
+    
+                    if ("express" in str(route_long_name) or mode == "XB") :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
+                        
+                else: 
+                    if ("express" in str(route_long_name)) :
+                        link_penalty = ft_penalty_suburban
+                    else:
+                        link_penalty = ft_penalty
 
                 # apply ft penalty
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
@@ -1561,8 +1602,9 @@ class Transit(object):
                     path_osm_link_df["agency_raw_name"] = agency_raw_name
                     path_osm_link_df["shape_id"] = shape_id
 
-                    trip_osm_link_df = trip_osm_link_df.append(
-                        path_osm_link_df, ignore_index=True, sort=False
+                    trip_osm_link_df = pd.concat(
+                        [trip_osm_link_df, path_osm_link_df], 
+                        ignore_index=True
                     )
 
         if len(trip_osm_link_df) == 0:
@@ -2045,8 +2087,9 @@ class Transit(object):
                     unique_id=["agency_raw_name", "stop_id", "trip_id"],
                 )
 
-                stop_to_node_df = stop_to_node_df.append(
-                    trip_stop_df, sort=False, ignore_index=True
+                stop_to_node_df = pd.concat(
+                    [stop_to_node_df, trip_stop_df], 
+                    ignore_index=True
                 )
 
         stop_to_node_df.drop(["X", "Y"], axis=1, inplace=True)
@@ -2134,8 +2177,9 @@ class Transit(object):
             new_rail_shape_df = new_rail_shape_df.rename(
                 columns={"stop_lat": "shape_pt_lat", "stop_lon": "shape_pt_lon"}
             )
-            rail_shape_df = rail_shape_df.append(
-                new_rail_shape_df, sort=False, ignore_index=True
+            rail_shape_df = pd.concat(
+                [rail_shape_df, new_rail_shape_df], 
+                ignore_index=True
             )
         else:
             shape_id_list = rail_trip_df.agency_shape_id.unique()
@@ -2152,10 +2196,10 @@ class Transit(object):
                 new_rail_shape_df = new_rail_shape_df.rename(
                     columns={"stop_lat": "shape_pt_lat", "stop_lon": "shape_pt_lon"}
                 )
-                rail_shape_df = rail_shape_df.append(
-                    new_rail_shape_df, sort=False, ignore_index=True
+                rail_shape_df = pd.concat(
+                    [rail_shape_df, new_rail_shape_df], 
+                    ignore_index=True
                 )
-
         rail_shape_stop_df = pd.DataFrame()
 
         # for each rail shape
@@ -2165,7 +2209,7 @@ class Transit(object):
                 rail_shape_df.agency_shape_id == agency_shape_id
             ].copy()
             # initialize columns
-            shape_df["is_stop"] = np.int(0)
+            shape_df["is_stop"] = np.int64(0)
             shape_df["stop_id"] = np.nan
 
             shape_inventory = shape_df[["shape_pt_lon", "shape_pt_lat"]].values
@@ -2183,8 +2227,9 @@ class Transit(object):
                 shape_df.is_stop.iloc[ii] = 1
                 shape_df.stop_id.iloc[ii] = stop_df.iloc[s]["stop_id"]
 
-            rail_shape_stop_df = rail_shape_stop_df.append(
-                shape_df, ignore_index=True, sort=False
+            rail_shape_stop_df = pd.concat(
+                [rail_shape_stop_df, shape_df], 
+                ignore_index=True
             )
 
         rail_trip_link_df = pd.DataFrame()
@@ -2216,16 +2261,22 @@ class Transit(object):
                     break_list[j] : break_list[j + 1] + 1
                 ].tolist()
                 linestring = LineString([Point(xy) for xy in zip(lon_list, lat_list)])
-                rail_trip_link_df = rail_trip_link_df.append(
-                    {
-                        "agency_raw_name": agency_raw_name,
-                        "shape_id": shape_id,
-                        "from_stop_id": stop_id_list[j],
-                        "to_stop_id": stop_id_list[j + 1],
-                        "geometry": linestring,
-                    },
+                rail_trip_link_df = pd.concat(
+                    [
+                        rail_trip_link_df,
+                        pd.DataFrame(
+                            [
+                                {
+                                    "agency_raw_name": agency_raw_name,
+                                    "shape_id": shape_id,
+                                    "from_stop_id": stop_id_list[j],
+                                    "to_stop_id": stop_id_list[j + 1],
+                                    "geometry": linestring,
+                                }
+                            ]
+                        ),
+                    ],
                     ignore_index=True,
-                    sort=False,
                 )
 
         # drop duplicate rail links
@@ -2308,12 +2359,14 @@ class Transit(object):
         self.unique_rail_links_gdf = unique_rail_links_gdf
         self.unique_rail_nodes_gdf = unique_rail_nodes_gdf
 
-        self.roadway_network.links_df = self.roadway_network.links_df.append(
-            unique_rail_links_gdf, sort=False, ignore_index=True
+        self.roadway_network.links_df  = pd.concat(
+            [self.roadway_network.links_df , unique_rail_links_gdf], 
+            ignore_index=True
         )
 
-        self.roadway_network.nodes_df = self.roadway_network.nodes_df.append(
-            unique_rail_nodes_gdf, sort=False, ignore_index=True
+        self.roadway_network.nodes_df = pd.concat(
+            [self.roadway_network.nodes_df , unique_rail_nodes_gdf], 
+            ignore_index=True
         )
 
     def create_freq_table(self):
@@ -2575,6 +2628,8 @@ class Transit(object):
             on=["agency_raw_name", "route_id"],
         )
 
+        route_df["route_short_name"] = route_df["route_short_name"].fillna("").astype(str)
+        
         route_df.to_csv(os.path.join(path, "routes.txt"), index=False, sep=",")
 
         shape_point_df.to_csv(os.path.join(path, "shapes.txt"), index=False, sep=",")
