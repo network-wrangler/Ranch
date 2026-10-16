@@ -124,7 +124,7 @@ def ox_graph(nodes_df, links_df):
         graph_nodes = nodes_df.copy()
 
     graph_nodes.gdf_name = "network_nodes"
-    graph_nodes["id"] = graph_nodes["shst_node_id"]
+    graph_nodes["id"] = graph_nodes["osm_node_id"]
 
     graph_links = links_df.copy()
     graph_links["id"] = graph_links["shstReferenceId"]

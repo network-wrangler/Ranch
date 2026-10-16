@@ -967,8 +967,8 @@ class Transit(object):
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
                     "roadway"
                 ].map(link_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(
-                    link_penalty["default"], inplace=True
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"].fillna(
+                    link_penalty["default"]
                 )
                 # bus_only link
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
@@ -1510,8 +1510,8 @@ class Transit(object):
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
                     "roadway"
                 ].map(link_penalty)
-                links_within_polygon_gdf["ft_penalty"].fillna(
-                    link_penalty["default"], inplace=True
+                links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf["ft_penalty"].fillna(
+                    link_penalty["default"]
                 )
                 # bus_only link
                 links_within_polygon_gdf["ft_penalty"] = links_within_polygon_gdf[
