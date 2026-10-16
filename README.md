@@ -11,14 +11,28 @@ For the latest code developments, check out the `develop` branch.
 
 ## Installation
 
+Install the published package with `uv`:
+
+```bash
+uv add ranch-network-wrangler
+```
+
+Or install it with pip:
+
+```bash
+python -m pip install ranch-network-wrangler
+```
+
+The Python import package remains `ranch`.
+
 ### Requirements
 - Ranch requires user to install [SharedStreets' Node.js implementation](https://github.com/sharedstreets/sharedstreets-js#sharedstreets-nodejs--javascript), using the Docker installation. User will first install Docker on the machine, and then build SharedStreets image using this [Dockerfile](https://github.com/wsp-sag/Ranch/blob/develop/ranch/Dockerfile). See more instruction below.
 
-- Ranch uses Python 3.7 and above.  Requirements are stored in `requirements.txt` but are automatically installed when using `pip` as are development requirements (for now) which are located in `dev-requirements.txt`.
+- Ranch uses Python 3.7 and above. Runtime requirements are installed with the package. Development dependencies are managed by uv and can be installed with `uv sync`. Install the documentation dependencies as well with `uv sync --group doc`.
 
   The intallation instructions use the [`conda`](https://conda.io/en/latest/) virtual environment manager and some use the ['git'](https://git-scm.com/downloads) version control software.
 
-### Ranch Installation
+### Ranch Installation from GitHub
 If you are managing multiple python versions, we suggest using [`virtualenv`](https://virtualenv.pypa.io/en/latest/) or [`conda`](https://conda.io/en/latest/) virtual environments. All commands should executed in a conda command prompt, not powershell or the system command prompt. Do not add conda to the system path during installation. This may cause problems with other programs that require python 2.7 to be placed in the system path.
 
 Example using a conda environment and using the package manager [pip](https://pip.pypa.io/en/stable/) to install Ranch from the source on GitHub.
@@ -74,13 +88,10 @@ Documentation is located at [https://wsp-sag.github.io/Ranch/](https://wsp-sag.g
 
 Edit the source of the documentation  in the `/docs` folder.
 
-To build the documentation locally requires additional packages found in the `dev_requirements.txt` folder.  
-
-To install these into your conda python environment execute the following from the command line in the Ranch folder:
+To build the documentation locally, install its dependencies from the Ranch folder:
 
 ```bash
-conda activate <my_ranch_environment>
-pip install -r dev-requirements.txt
+uv sync --group doc
 ```
 
 To build the documentation, navigate to the `/docs` folder and execute the command: `make html`
